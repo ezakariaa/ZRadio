@@ -1,18 +1,82 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="utf-8">
-<title>Ma Webradio</title>
-<style>
-body{font-family:sans-serif;text-align:center;padding-top:2rem}
-button{font-size:1.2rem;padding:0.5rem 1.2rem}
-</style>
+  <meta charset="utf-8">
+  <title>Z Radio – Live Stream</title>
+
+  <!-- 𝗦𝘁𝘆𝗹𝗲 minimal -->
+  <style>
+    :root{
+      --bg:#111;
+      --fg:#f5f5f5;
+      --accent:#1db954;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      min-height:100vh;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+      align-items:center;
+      background:var(--bg);
+      color:var(--fg);
+      font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+      text-align:center;
+    }
+    h1{margin:0 0 .25em;font-size:2.4rem;color:var(--accent)}
+    small{color:#aaa}
+    audio{width:90%;max-width:420px;margin:1.2em 0}
+    #nowPlaying{margin-top:.8em;font-size:1.1rem}
+    a{color:var(--accent)}
+  </style>
 </head>
 <body>
-<h1>🎵 Ma Webradio 🎵</h1>
-<audio id="player" controls preload="none">
-  <source src="http://zradio.ddns.net:8000/stream" type="audio/mpeg">
-  Votre navigateur ne supporte pas l’audio HTML5.
-</audio>
+
+  <h1>🎵 Z Radio</h1>
+  <small>Musique&nbsp;24&nbsp;/&nbsp;7 – Icecast Stream</small>
+
+  <!-- 𝗟𝗲𝗰𝘁𝗲𝘂𝗿 -->
+  <audio id="player" controls preload="none">
+    <source src="http://zradio.ddns.net:8000/stream" type="audio/mpeg">
+    Votre navigateur ne supporte pas l’audio HTML5.
+  </audio>
+
+  <!-- 𝗠𝗲𝘁𝗮𝗱𝗼𝗻𝗻𝗲́𝗲𝘀 dynamiques -->
+  <div id="nowPlaying">Chargement…</div>
+
+  <script>
+  /* --- Récupération JSON Icecast toutes les 15 s --- */
+  const statusURL = "http://zradio.ddns.net:8000/status-json.xsl";
+  const nowPlaying = document.getElementById("nowPlaying");
+
+  async function refresh() {
+    try {
+      const r = await fetch(statusURL);
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+
+      /* source est un objet ou un tableau selon le nombre de mountpoints */
+      let src = data.icestats.source;
+      if (Array.isArray(src)) {
+        src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
+      }
+
+      const title = src.title || "Titre inconnu";
+      const listeners = src.listeners ?? 0;
+      nowPlaying.textContent = `🎶 ${title}   👥 Auditeurs : ${listeners}`;
+    } catch (e) {
+      nowPlaying.textContent = "Flux indisponible…";
+    }
+  }
+  refresh();
+  setInterval(refresh, 15000);
+  </script>
+
+  <!-- 𝗖𝗿𝗲́𝗱𝗶𝘁 simple -->
+  <footer style="margin-top:2.5rem;font-size:.8rem;color:#666">
+    © 2025 <span style="color:var(--accent)">Z Radio</span> – Powered by <a href="https://icecast.org" target="_blank">Icecast 2</a>
+  </footer>
+
 </body>
 </html>
