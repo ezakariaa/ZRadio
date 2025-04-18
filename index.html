@@ -32,7 +32,7 @@
 
   <!-- 𝗟𝗲𝗰𝘁𝗲𝘂𝗿 -->
   <audio id="player" controls preload="none">
-    <source src="//zradio.ddns.net:8000/stream" type="audio/mpeg">
+    <source src="//zradio.ddns.net:8443/stream" type="audio/mpeg">
     Votre navigateur ne supporte pas l’audio HTML5.
   </audio>
 
@@ -41,7 +41,7 @@
 
   <script>
     /* URLs sans schéma : http ou https selon la page */
-    const statusURL = "//zradio.ddns.net:8000/status-json.xsl";
+    const statusURL = "//zradio.ddns.net:8443/status-json.xsl";
     const nowPlaying = document.getElementById("nowPlaying");
     const player = document.getElementById("player");
 
