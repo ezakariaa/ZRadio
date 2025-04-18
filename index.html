@@ -6,107 +6,153 @@
 <title>Z Radio – Live Stream</title>
 
 <style>
-:root{
-  --accent:#1db954;
-  --bg1:#0e0e0e;
-  --bg2:#232526;
+:root {
+  --accent: #1db954;
+  --bg1: #0e0e0e;
+  --bg2: #232526;
 }
-*{box-sizing:border-box;margin:0;padding:0}
-body{
-  min-height:100vh;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  flex-direction:column;
-  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
-  background:linear-gradient(145deg,var(--bg1),var(--bg2));
-  color:#f5f5f5;
-  text-align:center;
-  padding:1.2rem;
+* { box-sizing: border-box; margin: 0; padding: 0 }
+body {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  font-family: system-ui, sans-serif;
+  background: linear-gradient(145deg, var(--bg1), var(--bg2));
+  color: #f5f5f5;
+  text-align: center;
+  padding: 1.2rem;
 }
-h1{font-size:2.6rem;color:var(--accent);letter-spacing:.5px;margin-bottom:.2em}
-small{color:#aaa}
-#cover{
-  width:220px;height:220px;border-radius:8px;object-fit:cover;
-  box-shadow:0 4px 16px rgba(0,0,0,.4);margin:1.3em 0 .8em;
+h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em }
+small { color: #aaa }
+#coverWrapper {
+  width: 220px; height: 220px; border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,.4);
+  margin: 1.3em 0 .8em;
+  overflow: hidden;
 }
-audio{
-  width:220px;height:40px;border:none;margin-bottom:1em;
-  filter:drop-shadow(0 2px 4px rgba(0,0,0,.5));
+img#cover {
+  width: 100%; height: 100%; object-fit: cover;
+  display: none;
 }
-.meta{font-size:1.05rem;margin-top:.3em}
-#listeners{font-size:.9rem;color:#ccc;margin-top:.2em}
-footer{margin-top:2.5rem;font-size:.8rem;color:#888}
-a{color:var(--accent)}
+svg#audioBars {
+  width: 100%; height: 100%;
+  background: #1b1b1b;
+}
+.bar {
+  fill: var(--accent);
+  animation: bounce 1s infinite ease-in-out;
+}
+.bar:nth-child(1) { animation-delay: 0s }
+.bar:nth-child(2) { animation-delay: .1s }
+.bar:nth-child(3) { animation-delay: .2s }
+.bar:nth-child(4) { animation-delay: .3s }
+.bar:nth-child(5) { animation-delay: .4s }
+
+@keyframes bounce {
+  0%, 100% { height: 40px; y: 80 }
+  50% { height: 120px; y: 40 }
+}
+
+audio {
+  width: 220px; height: 40px;
+  margin-bottom: 1em;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
+}
+.meta { font-size: 1.05rem; margin-top: .3em }
+#listeners { font-size: .9rem; color: #ccc; margin-top: .2em }
+footer { margin-top: 2.5rem; font-size: .8rem; color: #888 }
+a { color: var(--accent) }
 </style>
 </head>
 <body>
 
 <h1>🎵 Z Radio</h1>
-<small>Musique 24 / 7 – Hits & Classics</small>
+<small>Musique 24 / 7 – Hits & Classics</small>
 
-<img id="cover" src="https://dummyimage.com/600x600/1b1b1b/ffffff&text=Z+Radio" alt="Cover">
+<div id="coverWrapper">
+  <img id="cover" src="" alt="Pochette de l'album">
+  <svg id="audioBars" viewBox="0 0 120 160">
+    <rect class="bar" x="10"  y="80" width="10" height="80" rx="2"/>
+    <rect class="bar" x="30"  y="80" width="10" height="80" rx="2"/>
+    <rect class="bar" x="50"  y="80" width="10" height="80" rx="2"/>
+    <rect class="bar" x="70"  y="80" width="10" height="80" rx="2"/>
+    <rect class="bar" x="90"  y="80" width="10" height="80" rx="2"/>
+  </svg>
+</div>
 
 <audio id="player" controls preload="none">
   <source src="https://zradio.ddns.net:8443/stream" type="audio/mpeg">
-  Votre navigateur ne supporte pas l’audio HTML5.
+  Votre navigateur ne supporte pas l’audio HTML5.
 </audio>
 
 <div id="title" class="meta">Titre inconnu</div>
-<div id="listeners">Auditeurs : 0</div>
+<div id="listeners">Auditeurs : 0</div>
 
 <footer>
-  © 2025 <span style="color:var(--accent)">Z Radio</span> – Powered by
-  <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
+  © 2025 <span style="color:var(--accent)">Z Radio</span> – Powered by
+  <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
 </footer>
 
 <script>
-const statusURL  = "https://zradio.ddns.net:8443/status-json.xsl"; // HTTPS !
-const player     = document.getElementById("player");
-const coverImg   = document.getElementById("cover");
-const titleEl    = document.getElementById("title");
-const listenersEl= document.getElementById("listeners");
-let lastTitle    = "";
+const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
+const player      = document.getElementById("player");
+const coverImg    = document.getElementById("cover");
+const audioBars   = document.getElementById("audioBars");
+const titleEl     = document.getElementById("title");
+const listenersEl = document.getElementById("listeners");
+let lastTitle     = "";
 
-async function fetchCover(query){
-  try{
-    const r = await fetch("https://itunes.apple.com/search?term="+encodeURIComponent(query)+"&limit=1&media=music");
+async function fetchCover(query) {
+  try {
+    const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
     const j = await r.json();
-    if(j.results && j.results[0]){
-      const art = j.results[0].artworkUrl100.replace("100x100","600x600");
+    if (j.results && j.results[0]) {
+      const art = j.results[0].artworkUrl100.replace("100x100", "600x600");
       coverImg.src = art;
+      coverImg.style.display = "block";
+      audioBars.style.display = "none";
       return;
     }
-  }catch(e){}
-  coverImg.src = "https://dummyimage.com/600x600/1b1b1b/ffffff&text=Z+Radio";
+  } catch (e) {}
+  // fallback
+  coverImg.src = "cover.png";
+  coverImg.style.display = "block";
+  audioBars.style.display = "none";
 }
 
-async function refresh(){
-  try{
-    const r = await fetch(statusURL,{cache:"no-store"});
-    if(!r.ok) throw new Error(r.status);
+async function refresh() {
+  try {
+    const r = await fetch(statusURL, { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
     const data = await r.json();
     let src = data.icestats.source;
-    if(Array.isArray(src)) src = src.find(s=>s.listenurl.endsWith("/stream"))||src[0];
+    if (Array.isArray(src)) src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
     const rawTitle  = src.title || "Titre inconnu";
     const listeners = src.listeners ?? 0;
 
     titleEl.textContent = rawTitle;
-    listenersEl.textContent = "Auditeurs : "+listeners;
+    listenersEl.textContent = "Auditeurs : " + listeners;
 
-    if(rawTitle !== lastTitle && rawTitle!=="Titre inconnu"){
+    if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
       lastTitle = rawTitle;
-      // Essaye de séparer "Artiste - Titre"
-      let query = rawTitle.split(" - ").slice(0,2).join(" ");
+      const query = rawTitle.split(" - ").slice(0, 2).join(" ");
       fetchCover(query);
     }
-  }catch(e){
+  } catch (e) {
     titleEl.textContent = "Flux indisponible…";
     listenersEl.textContent = "";
-    coverImg.src = "https://dummyimage.com/600x600/1b1b1b/ffffff&text=Z+Radio";
+    coverImg.src = "cover.png";
+    coverImg.style.display = "block";
+    audioBars.style.display = "none";
   }
 }
-player.addEventListener("play",()=>{ refresh(); setInterval(refresh,15000); },{once:true});
+
+player.addEventListener("play", () => {
+  refresh();
+  setInterval(refresh, 15000);
+}, { once: true });
 </script>
 
 </body>
