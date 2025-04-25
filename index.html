@@ -1,160 +1,195 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Z Radio – Live Stream</title>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9814928197980690"
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Z Radio – Live Stream</title>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9814928197980690"
      crossorigin="anonymous"></script>
-<style>
-:root {
-  --accent: #1db954;
-  --bg1: #0e0e0e;
-  --bg2: #232526;
-}
-* { box-sizing: border-box; margin: 0; padding: 0 }
-body {
-  min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  flex-direction: column;
-  font-family: system-ui, sans-serif;
-  background: linear-gradient(145deg, var(--bg1), var(--bg2));
-  color: #f5f5f5;
-  text-align: center;
-  padding: 1.2rem;
-}
-h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em }
-small { color: #aaa }
-#coverWrapper {
-  width: 220px; height: 220px; border-radius: 8px;
-  box-shadow: 0 4px 16px rgba(0,0,0,.4);
-  margin: 1.3em 0 .8em;
-  overflow: hidden;
-}
-img#cover {
-  width: 100%; height: 100%; object-fit: cover;
-  display: none;
-}
-svg#audioBars {
-  width: 100%; height: 100%;
-  background: #1b1b1b;
-}
-.bar {
-  fill: var(--accent);
-  animation: bounce 1s infinite ease-in-out;
-}
-.bar:nth-child(1) { animation-delay: 0s }
-.bar:nth-child(2) { animation-delay: .1s }
-.bar:nth-child(3) { animation-delay: .2s }
-.bar:nth-child(4) { animation-delay: .3s }
-.bar:nth-child(5) { animation-delay: .4s }
-
-@keyframes bounce {
-  0%, 100% { height: 40px; y: 80 }
-  50% { height: 120px; y: 40 }
-}
-
-audio {
-  width: 220px; height: 40px;
-  margin-bottom: 1em;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
-}
-.meta { font-size: 1.05rem; margin-top: .3em }
-#listeners { font-size: .9rem; color: #ccc; margin-top: .2em }
-footer { margin-top: 2.5rem; font-size: .8rem; color: #888 }
-a { color: var(--accent) }
-</style>
+  <style>
+    :root {
+      --accent: #1db954;
+      --bg1: #0e0e0e;
+      --bg2: #232526;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0 }
+    body {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(145deg, var(--bg1), var(--bg2));
+      color: #f5f5f5;
+      text-align: center;
+      padding: 1.2rem;
+    }
+    h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em }
+    small { color: #aaa }
+    #coverWrapper {
+      width: 220px; height: 220px; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      margin: 1.3em 0 .8em;
+      overflow: hidden;
+    }
+    img#cover {
+      width: 100%; height: 100%; object-fit: cover;
+      display: none;
+    }
+    svg#audioBars {
+      width: 100%; height: 100%;
+      background: #1b1b1b;
+    }
+    .bar {
+      fill: var(--accent);
+      animation: bounce 1s infinite ease-in-out;
+    }
+    .bar:nth-child(1) { animation-delay: 0s }
+    .bar:nth-child(2) { animation-delay: .1s }
+    .bar:nth-child(3) { animation-delay: .2s }
+    .bar:nth-child(4) { animation-delay: .3s }
+    .bar:nth-child(5) { animation-delay: .4s }
+    @keyframes bounce {
+      0%, 100% { height: 40px; y: 80 }
+      50% { height: 120px; y: 40 }
+    }
+    audio {
+      width: 220px; height: 40px;
+      margin-bottom: 1em;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
+    }
+    .meta { font-size: 1.05rem; margin-top: .3em }
+    #listeners { font-size: .9rem; color: #ccc; margin-top: .2em }
+    footer { margin-top: 2.5rem; font-size: .8rem; color: #888 }
+    a { color: var(--accent) }
+  </style>
 </head>
 <body>
 
-<h1>🎵 Z Radio</h1>
-<small>Musique 24 / 7 – Hits & Classics</small>
+  <h1>🎵 Z Radio</h1>
+  <small>Musique 24 / 7 – Hits & Classics</small>
 
-<div id="coverWrapper">
-  <img id="cover" src="" alt="Pochette de l'album">
-  <svg id="audioBars" viewBox="0 0 120 160">
-    <rect class="bar" x="10"  y="80" width="10" height="80" rx="2"/>
-    <rect class="bar" x="30"  y="80" width="10" height="80" rx="2"/>
-    <rect class="bar" x="50"  y="80" width="10" height="80" rx="2"/>
-    <rect class="bar" x="70"  y="80" width="10" height="80" rx="2"/>
-    <rect class="bar" x="90"  y="80" width="10" height="80" rx="2"/>
-  </svg>
-</div>
+  <div id="coverWrapper">
+    <img id="cover" src="" alt="Pochette de l'album">
+    <svg id="audioBars" viewBox="0 0 120 160">
+      <rect class="bar" x="10"  y="80" width="10" height="80" rx="2"/>
+      <rect class="bar" x="30"  y="80" width="10" height="80" rx="2"/>
+      <rect class="bar" x="50"  y="80" width="10" height="80" rx="2"/>
+      <rect class="bar" x="70"  y="80" width="10" height="80" rx="2"/>
+      <rect class="bar" x="90"  y="80" width="10" height="80" rx="2"/>
+    </svg>
+  </div>
 
-<audio id="player" controls preload="none">
-  <source src="https://zradio.ddns.net:8443/stream" type="audio/mpeg">
-  Votre navigateur ne supporte pas l’audio HTML5.
-</audio>
+  <audio id="player" controls preload="none">
+    <source src="https://zradio.ddns.net:8443/stream" type="audio/mpeg">
+    Votre navigateur ne supporte pas l’audio HTML5.
+  </audio>
 
-<div id="title" class="meta">Titre inconnu</div>
-<div id="listeners">Auditeurs : 0</div>
+  <div id="title" class="meta">Titre inconnu</div>
+  <div id="listeners">Auditeurs : 0</div>
 
-<footer>
-  © 2025 <span style="color:var(--accent)">Z Radio </span> - Created by  <span style="color:var(--accent)">Zakaria ELORCHE</span> 
-    <br/> Powered by  <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
-</footer>
+  <footer>
+    © 2025 <span style="color:var(--accent)">Z Radio</span> – Created by <span style="color:var(--accent)">Zakaria ELORCHE</span><br/>
+    Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
+  </footer>
 
-<script>
-const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
-const player      = document.getElementById("player");
-const coverImg    = document.getElementById("cover");
-const audioBars   = document.getElementById("audioBars");
-const titleEl     = document.getElementById("title");
-const listenersEl = document.getElementById("listeners");
-let lastTitle     = "";
+  <script>
+    const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
+    const player      = document.getElementById("player");
+    const coverImg    = document.getElementById("cover");
+    const audioBars   = document.getElementById("audioBars");
+    const titleEl     = document.getElementById("title");
+    const listenersEl = document.getElementById("listeners");
+    let lastTitle     = "";
 
-async function fetchCover(query) {
-  try {
-    const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-    const j = await r.json();
-    if (j.results && j.results[0]) {
-      const art = j.results[0].artworkUrl100.replace("100x100", "600x600");
-      coverImg.src = art;
+    // Tente iTunes
+    async function fetchCoverItunes(query) {
+      const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+      const data = await res.json();
+      if (data.results && data.results[0]?.artworkUrl100) {
+        return data.results[0].artworkUrl100.replace("100x100", "600x600");
+      }
+      throw new Error("iTunes no cover");
+    }
+
+    // Tente MusicBrainz + Cover Art Archive
+    async function fetchCoverMB(query) {
+      // recherche d'enregistrement sur MusicBrainz
+      const mbRes = await fetch("https://musicbrainz.org/ws/2/recording/?query="
+        + encodeURIComponent(query) + "&fmt=json&limit=1");
+      const mbJson = await mbRes.json();
+      const rec = mbJson.recordings?.[0];
+      if (!rec) throw new Error("MB no recording");
+      // extrait le premier release-group
+      const rgid = rec["release-group"]?.id;
+      if (!rgid) throw new Error("MB no release-group");
+      // requête Cover Art Archive
+      const caaUrl = `https://coverartarchive.org/release-group/${rgid}/front-500`;
+      const caaCheck = await fetch(caaUrl, { method: "HEAD" });
+      if (caaCheck.ok) return caaUrl;
+      throw new Error("CAA no cover");
+    }
+
+    async function fetchCoverAny(query) {
+      // essai en chaîne
+      const sources = [fetchCoverItunes, fetchCoverMB];
+      for (const fn of sources) {
+        try {
+          const url = await fn(query);
+          return url;
+        } catch (_) { /* passe au suivant */ }
+      }
+      // fallback
+      return "cover.png";
+    }
+
+    async function fetchCover(query) {
+      try {
+        const url = await fetchCoverAny(query);
+        coverImg.src = url;
+      } catch {
+        coverImg.src = "cover.png";
+      }
       coverImg.style.display = "block";
       audioBars.style.display = "none";
-      return;
     }
-  } catch (e) {}
-  // fallback
-  coverImg.src = "cover.png";
-  coverImg.style.display = "block";
-  audioBars.style.display = "none";
-}
 
-async function refresh() {
-  try {
-    const r = await fetch(statusURL, { cache: "no-store" });
-    if (!r.ok) throw new Error(r.status);
-    const data = await r.json();
-    let src = data.icestats.source;
-    if (Array.isArray(src)) src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
-    const rawTitle  = src.title || "Titre inconnu";
-    const listeners = src.listeners ?? 0;
+    async function refresh() {
+      try {
+        const r = await fetch(statusURL, { cache: "no-store" });
+        if (!r.ok) throw new Error(r.status);
+        const data = await r.json();
+        let src = data.icestats.source;
+        if (Array.isArray(src)) {
+          src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
+        }
+        const rawTitle  = src.title || "Titre inconnu";
+        const listeners = src.listeners ?? 0;
 
-    titleEl.textContent = rawTitle;
-    listenersEl.textContent = "Auditeurs : " + listeners;
+        titleEl.textContent     = rawTitle;
+        listenersEl.textContent = "Auditeurs : " + listeners;
 
-    if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
-      lastTitle = rawTitle;
-      const query = rawTitle.split(" - ").slice(0, 2).join(" ");
-      fetchCover(query);
+        if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
+          lastTitle = rawTitle;
+          // on coupe ARTIST - TITRE
+          const query = rawTitle.split(" - ").slice(0, 2).join(" ");
+          fetchCover(query);
+        }
+      } catch (e) {
+        titleEl.textContent     = "Flux indisponible…";
+        listenersEl.textContent = "";
+        coverImg.src            = "cover.png";
+        coverImg.style.display  = "block";
+        audioBars.style.display = "none";
+      }
     }
-  } catch (e) {
-    titleEl.textContent = "Flux indisponible…";
-    listenersEl.textContent = "";
-    coverImg.src = "cover.png";
-    coverImg.style.display = "block";
-    audioBars.style.display = "none";
-  }
-}
 
-player.addEventListener("play", () => {
-  refresh();
-  setInterval(refresh, 15000);
-}, { once: true });
-</script>
+    player.addEventListener("play", () => {
+      refresh();
+      setInterval(refresh, 15000);
+    }, { once: true });
+  </script>
 
 </body>
 </html>
