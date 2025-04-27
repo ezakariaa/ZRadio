@@ -141,7 +141,7 @@
         } catch (_) { /* passe au suivant */ }
       }
       // fallback
-      return "cover.png";
+      return "cover.gif";
     }
 
     async function fetchCover(query) {
@@ -149,7 +149,7 @@
         const url = await fetchCoverAny(query);
         coverImg.src = url;
       } catch {
-        coverImg.src = "cover.png";
+        coverImg.src = "cover.gif";
       }
       coverImg.style.display = "block";
       audioBars.style.display = "none";
@@ -179,7 +179,7 @@
       } catch (e) {
         titleEl.textContent     = "Flux indisponible…";
         listenersEl.textContent = "";
-        coverImg.src            = "cover.png";
+        coverImg.src            = "cover.gif";
         coverImg.style.display  = "block";
         audioBars.style.display = "none";
       }
