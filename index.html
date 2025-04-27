@@ -4,8 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Z Radio – Live Stream</title>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9814928197980690"
-     crossorigin="anonymous"></script>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9814928197980690" crossorigin="anonymous"></script>
   <style>
     :root {
       --accent: #1db954;
@@ -35,24 +34,7 @@
     }
     img#cover {
       width: 100%; height: 100%; object-fit: cover;
-      display: none;
-    }
-    svg#audioBars {
-      width: 100%; height: 100%;
-      background: #1b1b1b;
-    }
-    .bar {
-      fill: var(--accent);
-      animation: bounce 1s infinite ease-in-out;
-    }
-    .bar:nth-child(1) { animation-delay: 0s }
-    .bar:nth-child(2) { animation-delay: .1s }
-    .bar:nth-child(3) { animation-delay: .2s }
-    .bar:nth-child(4) { animation-delay: .3s }
-    .bar:nth-child(5) { animation-delay: .4s }
-    @keyframes bounce {
-      0%, 100% { height: 40px; y: 80 }
-      50% { height: 120px; y: 40 }
+      display: block;
     }
     audio {
       width: 220px; height: 40px;
@@ -71,14 +53,7 @@
   <small>Musique 24 / 7 – Hits & Classics</small>
 
   <div id="coverWrapper">
-    <img id="cover" src="" alt="Pochette de l'album">
-    <svg id="audioBars" viewBox="0 0 120 160">
-      <rect class="bar" x="10"  y="80" width="10" height="80" rx="2"/>
-      <rect class="bar" x="30"  y="80" width="10" height="80" rx="2"/>
-      <rect class="bar" x="50"  y="80" width="10" height="80" rx="2"/>
-      <rect class="bar" x="70"  y="80" width="10" height="80" rx="2"/>
-      <rect class="bar" x="90"  y="80" width="10" height="80" rx="2"/>
-    </svg>
+    <img id="cover" src="cover.png" alt="Pochette de l'album">
   </div>
 
   <audio id="player" controls preload="none">
@@ -98,12 +73,10 @@
     const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
     const player      = document.getElementById("player");
     const coverImg    = document.getElementById("cover");
-    const audioBars   = document.getElementById("audioBars");
     const titleEl     = document.getElementById("title");
     const listenersEl = document.getElementById("listeners");
     let lastTitle     = "";
 
-    // Tente iTunes
     async function fetchCoverItunes(query) {
       const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
       const data = await res.json();
@@ -113,18 +86,13 @@
       throw new Error("iTunes no cover");
     }
 
-    // Tente MusicBrainz + Cover Art Archive
     async function fetchCoverMB(query) {
-      // recherche d'enregistrement sur MusicBrainz
-      const mbRes = await fetch("https://musicbrainz.org/ws/2/recording/?query="
-        + encodeURIComponent(query) + "&fmt=json&limit=1");
+      const mbRes = await fetch("https://musicbrainz.org/ws/2/recording/?query=" + encodeURIComponent(query) + "&fmt=json&limit=1");
       const mbJson = await mbRes.json();
       const rec = mbJson.recordings?.[0];
       if (!rec) throw new Error("MB no recording");
-      // extrait le premier release-group
       const rgid = rec["release-group"]?.id;
       if (!rgid) throw new Error("MB no release-group");
-      // requête Cover Art Archive
       const caaUrl = `https://coverartarchive.org/release-group/${rgid}/front-500`;
       const caaCheck = await fetch(caaUrl, { method: "HEAD" });
       if (caaCheck.ok) return caaUrl;
@@ -132,16 +100,14 @@
     }
 
     async function fetchCoverAny(query) {
-      // essai en chaîne
       const sources = [fetchCoverItunes, fetchCoverMB];
       for (const fn of sources) {
         try {
           const url = await fn(query);
           return url;
-        } catch (_) { /* passe au suivant */ }
+        } catch (_) {}
       }
-      // fallback
-      return "cover.gif";
+      return "cover.gif"; // <--- important: garder le fallback sur cover.gif
     }
 
     async function fetchCover(query) {
@@ -149,10 +115,8 @@
         const url = await fetchCoverAny(query);
         coverImg.src = url;
       } catch {
-        coverImg.src = "cover.gif";
+        coverImg.src = "cover.gif"; // <--- fallback en cas d'erreur
       }
-      coverImg.style.display = "block";
-      audioBars.style.display = "none";
     }
 
     async function refresh() {
@@ -172,16 +136,13 @@
 
         if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
           lastTitle = rawTitle;
-          // on coupe ARTIST - TITRE
           const query = rawTitle.split(" - ").slice(0, 2).join(" ");
           fetchCover(query);
         }
       } catch (e) {
         titleEl.textContent     = "Flux indisponible…";
         listenersEl.textContent = "";
-        coverImg.src            = "cover.gif";
-        coverImg.style.display  = "block";
-        audioBars.style.display = "none";
+        coverImg.src            = "cover.gif"; // <--- fallback si erreur
       }
     }
 
