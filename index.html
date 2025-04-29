@@ -107,15 +107,15 @@
         const rawTitle  = src.title || "Titre inconnu";
         const listeners = src.listeners ?? 0;
 
-        const [artist, title] = rawTitle.split(" - ");
+        const [artist, title] = rawTitle.includes(" - ") ? rawTitle.split(" - ") : ["Artiste inconnu", rawTitle];
 
-        titleEl.textContent     = title || rawTitle;
-        artistEl.textContent    = artist || "Artiste inconnu";
+        titleEl.textContent     = title;
+        artistEl.textContent    = artist;
         listenersEl.textContent = "Auditeurs : " + listeners;
 
         if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
           lastTitle = rawTitle;
-          const query = rawTitle.split(" - ").slice(0, 2).join(" ");
+          const query = artist + " " + title;
           fetchCover(query);
         }
       } catch (e) {
