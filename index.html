@@ -72,71 +72,78 @@
     Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
-  <script>
-    const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
-    const player      = document.getElementById("player");
-    const coverImg    = document.getElementById("cover");
-    const titleEl     = document.getElementById("title");
-    const artistEl    = document.getElementById("artist");
-    const listenersEl = document.getElementById("listeners");
-    let lastTitle     = "";
+ <script>
+  const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
+  const player      = document.getElementById("player");
+  const coverImg    = document.getElementById("cover");
+  const titleEl     = document.getElementById("title");
+  const artistEl    = document.createElement("div"); // élément pour afficher l'artiste
+  artistEl.className = "meta";
+  artistEl.style.color = "#ccc";
+  titleEl.parentNode.insertBefore(artistEl, titleEl.nextSibling); // insérer sous le titre
+  const listenersEl = document.getElementById("listeners");
+  let lastTitle     = "";
 
-    async function fetchCover(query) {
-      try {
-        const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-        const data = await res.json();
-        if (data.results && data.results[0]?.artworkUrl100) {
-          coverImg.src = data.results[0].artworkUrl100.replace("100x100", "600x600");
-        } else {
-          throw new Error();
-        }
-      } catch (e) {
-        coverImg.src = "cover.gif";
-      }
+  async function fetchCoverItunes(query) {
+    const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+    const data = await res.json();
+    if (data.results && data.results[0]?.artworkUrl100) {
+      return data.results[0].artworkUrl100.replace("100x100", "600x600");
     }
+    throw new Error("iTunes no cover");
+  }
 
-    async function refresh() {
-      try {
-        const r = await fetch(statusURL, { cache: "no-store" });
-        if (!r.ok) throw new Error(r.status);
-        const data = await r.json();
-        let src = data.icestats.source;
-        if (Array.isArray(src)) {
-          src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
-        }
-        const rawTitle  = src.title || "Titre inconnu";
-        const listeners = src.listeners ?? 0;
+  async function fetchCover(query) {
+    try {
+      const url = await fetchCoverItunes(query);
+      coverImg.src = url;
+    } catch {
+      coverImg.src = "cover.gif"; // fallback si erreur
+    }
+  }
 
-        let title, artist;
-        if (rawTitle.includes(" - ")) {
-          [artist, title] = rawTitle.split(" - ").map(part => part.trim());
-        } else {
+  async function refresh() {
+    try {
+      const r = await fetch(statusURL, { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+      let src = data.icestats.source;
+      if (Array.isArray(src)) {
+        src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
+      }
+      const rawTitle  = src.title || "Titre inconnu";
+      const listeners = src.listeners ?? 0;
+
+      listenersEl.textContent = "Auditeurs : " + listeners;
+
+      if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
+        lastTitle = rawTitle;
+
+        // Diviser clairement Artiste et Titre
+        let [artist, title] = rawTitle.split(" - ");
+        
+        if (!title) {  // au cas où le séparateur "-" n'existe pas
           title = rawTitle;
           artist = "Artiste inconnu";
         }
 
-        titleEl.textContent     = title;
-        artistEl.textContent    = artist;
-        listenersEl.textContent = "Auditeurs : " + listeners;
+        titleEl.innerHTML = `<strong>${title.trim()}</strong>`;
+        artistEl.textContent = artist.trim();
 
-        if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
-          lastTitle = rawTitle;
-          const query = artist + " " + title;
-          fetchCover(query);
-        }
-      } catch (e) {
-        titleEl.textContent     = "Flux indisponible…";
-        artistEl.textContent    = "";
-        listenersEl.textContent = "";
-        coverImg.src            = "cover.gif";
+        fetchCover(`${artist} ${title}`);
       }
+    } catch (e) {
+      titleEl.textContent = "Flux indisponible…";
+      artistEl.textContent = "";
+      listenersEl.textContent = "";
+      coverImg.src = "cover.gif"; // fallback si erreur
     }
+  }
 
-    player.addEventListener("play", () => {
-      refresh();
-      setInterval(refresh, 15000);
-    }, { once: true });
-  </script>
-
+  player.addEventListener("play", () => {
+    refresh();
+    setInterval(refresh, 15000);
+  }, { once: true });
+</script>
 </body>
 </html>
