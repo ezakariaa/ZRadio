@@ -11,7 +11,7 @@
       --bg1: #0e0e0e;
       --bg2: #232526;
     }
-    * { box-sizing: border-box; margin: 0; padding: 0 }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       min-height: 100vh;
       display: flex;
@@ -24,8 +24,8 @@
       text-align: center;
       padding: 1.2rem;
     }
-    h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em }
-    small { color: #aaa }
+    h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em; }
+    small { color: #aaa; }
     #coverWrapper {
       width: 220px; height: 220px; border-radius: 8px;
       box-shadow: 0 4px 16px rgba(0,0,0,.4);
@@ -41,10 +41,10 @@
       margin-bottom: 1em;
       filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
     }
-    .meta { font-size: 1.05rem; margin-top: .3em }
-    #listeners { font-size: .9rem; color: #ccc; margin-top: .2em }
-    footer { margin-top: 2.5rem; font-size: .8rem; color: #888 }
-    a { color: var(--accent) }
+    .meta { font-size: 1.05rem; margin-top: .3em; }
+    #listeners { font-size: .9rem; color: #ccc; margin-top: .2em; }
+    footer { margin-top: 2.5rem; font-size: .8rem; color: #888; }
+    a { color: var(--accent); }
     .song-title { font-weight: bold; }
     .artist-name { margin-top: 0.2em; color: #aaa; font-size: 0.95rem; }
   </style>
@@ -64,7 +64,7 @@
   </audio>
 
   <div id="title" class="meta song-title">Titre inconnu</div>
-  <div id="artist" class="artist-name"></div>
+  <div id="artist" class="artist-name">Artiste inconnu</div>
   <div id="listeners">Auditeurs : 0</div>
 
   <footer>
@@ -72,78 +72,77 @@
     Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
- <script>
-  const statusURL   = "https://zradio.ddns.net:8443/status-json.xsl";
-  const player      = document.getElementById("player");
-  const coverImg    = document.getElementById("cover");
-  const titleEl     = document.getElementById("title");
-  const artistEl    = document.createElement("div"); // élément pour afficher l'artiste
-  artistEl.className = "meta";
-  artistEl.style.color = "#ccc";
-  titleEl.parentNode.insertBefore(artistEl, titleEl.nextSibling); // insérer sous le titre
-  const listenersEl = document.getElementById("listeners");
-  let lastTitle     = "";
+  <script>
+    const statusURL = "https://zradio.ddns.net:8443/status-json.xsl";
+    const player = document.getElementById("player");
+    const coverImg = document.getElementById("cover");
+    const titleEl = document.getElementById("title");
+    const artistEl = document.getElementById("artist");
+    const listenersEl = document.getElementById("listeners");
+    let lastTitle = "";
 
-  async function fetchCoverItunes(query) {
-    const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-    const data = await res.json();
-    if (data.results && data.results[0]?.artworkUrl100) {
-      return data.results[0].artworkUrl100.replace("100x100", "600x600");
-    }
-    throw new Error("iTunes no cover");
-  }
-
-  async function fetchCover(query) {
-    try {
-      const url = await fetchCoverItunes(query);
-      coverImg.src = url;
-    } catch {
-      coverImg.src = "cover.gif"; // fallback si erreur
-    }
-  }
-
-  async function refresh() {
-    try {
-      const r = await fetch(statusURL, { cache: "no-store" });
-      if (!r.ok) throw new Error(r.status);
-      const data = await r.json();
-      let src = data.icestats.source;
-      if (Array.isArray(src)) {
-        src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
+    async function fetchCoverItunes(query) {
+      const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+      const data = await res.json();
+      if (data.results && data.results[0]?.artworkUrl100) {
+        return data.results[0].artworkUrl100.replace("100x100", "600x600");
       }
-      const rawTitle  = src.title || "Titre inconnu";
-      const listeners = src.listeners ?? 0;
+      throw new Error("iTunes no cover");
+    }
 
-      listenersEl.textContent = "Auditeurs : " + listeners;
+    async function fetchCover(query) {
+      try {
+        const url = await fetchCoverItunes(query);
+        coverImg.src = url;
+      } catch {
+        coverImg.src = "cover.gif"; // fallback si erreur
+      }
+    }
 
-      if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
-        lastTitle = rawTitle;
-
-        // Diviser clairement Artiste et Titre
-        let [artist, title] = rawTitle.split(" - ");
-        
-        if (!title) {  // au cas où le séparateur "-" n'existe pas
-          title = rawTitle;
-          artist = "Artiste inconnu";
+    async function refresh() {
+      try {
+        const r = await fetch(statusURL, { cache: "no-store" });
+        if (!r.ok) throw new Error(r.status);
+        const data = await r.json();
+        let src = data.icestats.source;
+        if (Array.isArray(src)) {
+          src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
         }
+        
+        const rawTitle = src.title || "Titre inconnu";
+        const listeners = src.listeners ?? 0;
 
-        titleEl.innerHTML = `<strong>${title.trim()}</strong>`;
-        artistEl.textContent = artist.trim();
+        listenersEl.textContent = "Auditeurs : " + listeners;
 
-        fetchCover(`${artist} ${title}`);
+        if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
+          lastTitle = rawTitle;
+
+          let artist = "Artiste inconnu";
+          let title = rawTitle;
+
+          if (rawTitle.includes(" – ")) {
+            [artist, title] = rawTitle.split(" – ").map(s => s.trim());
+          } else if (rawTitle.includes(" - ")) {
+            [artist, title] = rawTitle.split(" - ").map(s => s.trim());
+          }
+
+          titleEl.textContent = title;
+          artistEl.textContent = artist;
+
+          fetchCover(`${artist} ${title}`);
+        }
+      } catch (e) {
+        titleEl.textContent = "Flux indisponible…";
+        artistEl.textContent = "";
+        listenersEl.textContent = "";
+        coverImg.src = "cover.gif"; // fallback si erreur
       }
-    } catch (e) {
-      titleEl.textContent = "Flux indisponible…";
-      artistEl.textContent = "";
-      listenersEl.textContent = "";
-      coverImg.src = "cover.gif"; // fallback si erreur
     }
-  }
 
-  player.addEventListener("play", () => {
-    refresh();
-    setInterval(refresh, 15000);
-  }, { once: true });
-</script>
+    player.addEventListener("play", () => {
+      refresh();
+      setInterval(refresh, 15000);
+    }, { once: true });
+  </script>
 </body>
 </html>
