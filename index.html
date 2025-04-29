@@ -77,45 +77,17 @@
     const listenersEl = document.getElementById("listeners");
     let lastTitle     = "";
 
-    async function fetchCoverItunes(query) {
-      const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-      const data = await res.json();
-      if (data.results && data.results[0]?.artworkUrl100) {
-        return data.results[0].artworkUrl100.replace("100x100", "600x600");
-      }
-      throw new Error("iTunes no cover");
-    }
-
-    async function fetchCoverMB(query) {
-      const mbRes = await fetch("https://musicbrainz.org/ws/2/recording/?query=" + encodeURIComponent(query) + "&fmt=json&limit=1");
-      const mbJson = await mbRes.json();
-      const rec = mbJson.recordings?.[0];
-      if (!rec) throw new Error("MB no recording");
-      const rgid = rec["release-group"]?.id;
-      if (!rgid) throw new Error("MB no release-group");
-      const caaUrl = `https://coverartarchive.org/release-group/${rgid}/front-500`;
-      const caaCheck = await fetch(caaUrl, { method: "HEAD" });
-      if (caaCheck.ok) return caaUrl;
-      throw new Error("CAA no cover");
-    }
-
-    async function fetchCoverAny(query) {
-      const sources = [fetchCoverItunes, fetchCoverMB];
-      for (const fn of sources) {
-        try {
-          const url = await fn(query);
-          return url;
-        } catch (_) {}
-      }
-      return "cover.gif"; // <--- important: garder le fallback sur cover.gif
-    }
-
     async function fetchCover(query) {
       try {
-        const url = await fetchCoverAny(query);
-        coverImg.src = url;
-      } catch {
-        coverImg.src = "cover.gif"; // <--- fallback en cas d'erreur
+        const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+        const data = await res.json();
+        if (data.results && data.results[0]?.artworkUrl100) {
+          coverImg.src = data.results[0].artworkUrl100.replace("100x100", "600x600");
+        } else {
+          throw new Error();
+        }
+      } catch (e) {
+        coverImg.src = "cover.gif";
       }
     }
 
@@ -142,7 +114,7 @@
       } catch (e) {
         titleEl.textContent     = "Flux indisponible…";
         listenersEl.textContent = "";
-        coverImg.src            = "cover.gif"; // <--- fallback si erreur
+        coverImg.src            = "cover.gif";
       }
     }
 
