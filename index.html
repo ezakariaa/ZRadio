@@ -107,9 +107,13 @@
         const rawTitle  = src.title || "Titre inconnu";
         const listeners = src.listeners ?? 0;
 
-        const parts = rawTitle.split(" - ");
-        let artist = parts.length > 1 ? parts[0].trim() : "Artiste inconnu";
-        let title = parts.length > 1 ? parts.slice(1).join(" - ").trim() : rawTitle;
+        let title, artist;
+        if (rawTitle.includes(" - ")) {
+          [artist, title] = rawTitle.split(" - ").map(part => part.trim());
+        } else {
+          title = rawTitle;
+          artist = "Artiste inconnu";
+        }
 
         titleEl.textContent     = title;
         artistEl.textContent    = artist;
