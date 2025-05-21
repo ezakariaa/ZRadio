@@ -46,7 +46,6 @@
     a { color: var(--accent); }
     .song-title { font-weight: bold; font-size: 1rem; }
     .artist-name { margin-top: 0.2em; color: #aaa; font-size: 1rem; }
-    .radio-info { margin-top: 0.5em; color: #ddd; font-size: 0.9rem; }
   </style>
 </head>
 <body>
@@ -63,9 +62,8 @@
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
-  <div id="radio-name" class="radio-info">Eurodance 90</div>
-  <div id="title" class="meta song-title">En direct</div>
-  <div id="artist" class="artist-name">La radio dance 90</div>
+  <div id="title" class="meta song-title">Chargement en cours...</div>
+  <div id="artist" class="artist-name"></div>
   <div id="listeners">Auditeurs : --</div>
 
   <footer>
@@ -77,77 +75,19 @@
     const statusURL = "http://radiart.eu:8394/status-json.xsl"; 
     const player = document.getElementById("player");
     const coverImg = document.getElementById("cover");
-    const radioNameEl = document.getElementById("radio-name");
     const titleEl = document.getElementById("title");
     const artistEl = document.getElementById("artist");
     const listenersEl = document.getElementById("listeners");
-    let refreshInterval;
-
-    async function fetchRadioStatus() {
-      try {
-        // Solution CORS alternative si nécessaire
-        const corsProxy = "https://api.allorigins.win/raw?url=";
-        const response = await fetch(corsProxy + encodeURIComponent(statusURL), {
-          cache: "no-store"
-        });
-
-        if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
-
-        const data = await response.json();
-        
-        if (!data?.icestats?.source) {
-          throw new Error("Structure de données invalide");
-        }
-
-        // Trouver la source principale (celle avec des auditeurs)
-        const mainSource = data.icestats.source.find(source => source.listeners > 0) || 
-                          data.icestats.source[0];
-
-        if (!mainSource) throw new Error("Aucune source valide trouvée");
-
-        return {
-          radioName: mainSource.server_name || "Radio inconnue",
-          title: mainSource.title || "En direct",
-          listeners: mainSource.listeners || 0,
-          genre: mainSource.genre || "Musique"
-        };
-      } catch (error) {
-        console.error("Erreur de récupération du statut:", error);
-        throw error;
-      }
-    }
-
-    function updateDisplay(data) {
-      // Extraire artiste et titre si possible (adapté à votre format)
-      const titleParts = data.title.split(" - ");
-      const displayTitle = titleParts.length > 1 ? titleParts[1] : data.title;
-      const displayArtist = titleParts.length > 1 ? titleParts[0] : data.radioName;
-
-      radioNameEl.textContent = data.radioName;
-      titleEl.textContent = displayTitle;
-      artistEl.textContent = displayArtist;
-      listenersEl.textContent = `Auditeurs : ${data.listeners}`;
-      
-      // Mettre à jour la cover si nécessaire
-      if (displayArtist && displayTitle && displayTitle !== "En direct") {
-        updateCover(displayArtist, displayTitle);
-      }
-    }
-
-    async function updateCover(artist, title) {
-      try {
-        const coverUrl = await fetchCoverItunes(`${artist} ${title}`);
-        coverImg.src = coverUrl;
-      } catch {
-        coverImg.src = "cover.gif";
-      }
-    }
+    let lastTitle = "";
 
     async function fetchCoverItunes(query) {
       try {
-        const res = await fetch(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&limit=1&media=music`);
+        const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
         const data = await res.json();
-        return data.results?.[0]?.artworkUrl100?.replace("100x100", "600x600") || "cover.gif";
+        if (data.results && data.results[0]?.artworkUrl100) {
+          return data.results[0].artworkUrl100.replace("100x100", "600x600");
+        }
+        return "cover.gif";
       } catch {
         return "cover.gif";
       }
@@ -155,37 +95,55 @@
 
     async function refresh() {
       try {
-        const status = await fetchRadioStatus();
-        updateDisplay(status);
-      } catch (error) {
-        console.error("Refresh error:", error);
-        radioNameEl.textContent = "Eurodance 90";
-        titleEl.textContent = "Flux indisponible";
-        artistEl.textContent = "Connexion en cours...";
-        listenersEl.textContent = "Auditeurs : --";
-        coverImg.src = "cover.gif";
+        // Utilisation d'un proxy CORS simple
+        const proxyUrl = 'https://api.allorigins.win/raw?url=';
+        const r = await fetch(proxyUrl + encodeURIComponent(statusURL));
         
-        // Réessayer après 30 secondes
+        if (!r.ok) return;
+        
+        const data = await r.json();
+        let src = data.icestats.source;
+        
+        if (Array.isArray(src)) {
+          // Prendre la source avec des auditeurs ou la première
+          src = src.find(s => s.listeners > 0) || src[0];
+        }
+        
+        const rawTitle = src?.title || "En direct";
+        const listeners = src?.listeners || 0;
+
+        listenersEl.textContent = "Auditeurs : " + listeners;
+
+        if (rawTitle !== lastTitle) {
+          lastTitle = rawTitle;
+          
+          // Simple séparation du titre
+          if (rawTitle.includes(" - ")) {
+            const parts = rawTitle.split(" - ");
+            titleEl.textContent = parts[1] || "En direct";
+            artistEl.textContent = parts[0] || "Eurodance 90";
+          } else {
+            titleEl.textContent = rawTitle;
+            artistEl.textContent = "Eurodance 90";
+          }
+          
+          // Mettre à jour la pochette
+          const coverUrl = await fetchCoverItunes(`${artistEl.textContent} ${titleEl.textContent}`);
+          coverImg.src = coverUrl;
+        }
+      } catch (e) {
+        console.log("Erreur de connexion, réessai dans 30s");
         setTimeout(refresh, 30000);
       }
     }
 
-    function setupPlayer() {
-      // Premier refresh immédiat
-      refresh();
-      
-      // Mettre en place l'intervalle de refresh
-      refreshInterval = setInterval(refresh, 10000);
-      
-      // Nettoyer à la fermeture
-      window.addEventListener('beforeunload', () => {
-        clearInterval(refreshInterval);
-      });
-    }
-
     // Démarrer au chargement
-    document.addEventListener('DOMContentLoaded', setupPlayer);
-    player.addEventListener("play", setupPlayer, { once: true });
+    refresh();
+    // Et régulièrement ensuite
+    setInterval(refresh, 10000);
+    
+    // Démarrer aussi quand le lecteur est joué
+    player.addEventListener("play", refresh);
   </script>
 </body>
 </html>
