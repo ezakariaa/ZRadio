@@ -47,6 +47,7 @@
     a { color: var(--accent); }
     .song-title { font-weight: bold; font-size: 1rem; }
     .artist-name { margin-top: 0.2em; color: #aaa; font-size: 1rem; }
+    .status-message { color: #ff6b6b; font-size: 0.9rem; margin-top: 0.5em; }
   </style>
 </head>
 <body>
@@ -63,10 +64,10 @@
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
-  <div id="title" class="meta song-title">Titre inconnu</div>
-  <div id="artist" class="artist-name">Artiste inconnu</div>
-  <br>
-  <div id="listeners">Auditeurs : 0</div>
+  <div id="title" class="meta song-title">Chargement...</div>
+  <div id="artist" class="artist-name"></div>
+  <div id="status-message" class="status-message"></div>
+  <div id="listeners">Auditeurs : --</div>
 
   <footer>
     © 2025 <span style="color:var(--accent)">Z Radio</span> – Created by <span style="color:var(--accent)">Zakaria ELORCHE</span><br/>
@@ -87,76 +88,144 @@
 </script>
 
   <script>
-     const statusURL = "http://radiart.eu:8394/status-json.xsl"; 
+    const statusURL = "http://radiart.eu:8394/status-json.xsl"; 
     const player = document.getElementById("player");
     const coverImg = document.getElementById("cover");
     const titleEl = document.getElementById("title");
     const artistEl = document.getElementById("artist");
     const listenersEl = document.getElementById("listeners");
+    const statusMessageEl = document.getElementById("status-message");
     let lastTitle = "";
+    let refreshInterval;
 
     async function fetchCoverItunes(query) {
-      const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-      const data = await res.json();
-      if (data.results && data.results[0]?.artworkUrl100) {
-        return data.results[0].artworkUrl100.replace("100x100", "600x600");
+      try {
+        const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+        const data = await res.json();
+        if (data.results && data.results[0]?.artworkUrl100) {
+          return data.results[0].artworkUrl100.replace("100x100", "600x600");
+        }
+        throw new Error("Aucun résultat trouvé");
+      } catch (e) {
+        console.error("Erreur iTunes API:", e);
+        throw e;
       }
-      throw new Error("iTunes no cover");
     }
 
-    async function fetchCover(query) {
+    async function updateCover(artist, title) {
       try {
-        const url = await fetchCoverItunes(query);
-        coverImg.src = url;
+        const coverUrl = await fetchCoverItunes(`${artist} ${title}`);
+        coverImg.src = coverUrl;
       } catch {
-        coverImg.src = "cover.gif"; // fallback si erreur
+        coverImg.src = "cover.gif";
+      }
+    }
+
+    function parseTitle(rawTitle) {
+      if (!rawTitle || rawTitle === "Titre inconnu") return { artist: "", title: "Titre inconnu" };
+
+      const separators = [" – ", " - ", " | ", " • ", "::"];
+      for (const sep of separators) {
+        if (rawTitle.includes(sep)) {
+          const parts = rawTitle.split(sep).map(s => s.trim());
+          if (parts.length >= 2) {
+            return {
+              artist: parts[0],
+              title: parts.slice(1).join(sep)
+            };
+          }
+        }
+      }
+
+      return { artist: "", title: rawTitle };
+    }
+
+    async function fetchRadioStatus() {
+      try {
+        // Utilisation d'un proxy CORS
+        const proxyUrl = 'https://corsproxy.io/?';
+        const response = await fetch(proxyUrl + encodeURIComponent(statusURL), {
+          cache: "no-store"
+        });
+
+        if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
+
+        const data = await response.json();
+        
+        if (!data?.icestats?.source) {
+          throw new Error("Structure de données invalide");
+        }
+
+        let source = data.icestats.source;
+        if (Array.isArray(source)) {
+          source = source.find(s => s.listenurl?.includes?.("/stream")) || source[0];
+        }
+
+        if (!source) throw new Error("Source audio non trouvée");
+
+        return {
+          title: source.title || "Titre inconnu",
+          listeners: source.listeners ?? 0,
+          serverStatus: source.server_name ? "online" : "offline"
+        };
+      } catch (error) {
+        console.error("Erreur de récupération du statut:", error);
+        throw error;
       }
     }
 
     async function refresh() {
       try {
-        const r = await fetch(statusURL, { cache: "no-store" });
-        if (!r.ok) throw new Error(r.status);
-        const data = await r.json();
-        let src = data.icestats.source;
-        if (Array.isArray(src)) {
-          src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
-        }
+        statusMessageEl.textContent = "Connexion en cours...";
         
-        const rawTitle = src.title || "Titre inconnu";
-        const listeners = src.listeners ?? 0;
+        const { title: rawTitle, listeners, serverStatus } = await fetchRadioStatus();
+        
+        listenersEl.textContent = `Auditeurs : ${listeners}`;
+        statusMessageEl.textContent = "";
 
-        listenersEl.textContent = "Auditeurs : " + listeners;
-
-        if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
+        if (rawTitle !== lastTitle && serverStatus === "online") {
           lastTitle = rawTitle;
-
-          let artist = "Artiste inconnu";
-          let title = rawTitle;
-
-          if (rawTitle.includes(" – ")) {
-            [artist, title] = rawTitle.split(" – ").map(s => s.trim());
-          } else if (rawTitle.includes(" - ")) {
-            [artist, title] = rawTitle.split(" - ").map(s => s.trim());
-          }
-
+          
+          const { artist, title } = parseTitle(rawTitle);
+          
           titleEl.textContent = title;
-          artistEl.textContent = artist;
-
-          fetchCover(`${artist} ${title}`);
+          artistEl.textContent = artist || "Artiste inconnu";
+          
+          if (artist && title) {
+            updateCover(artist, title);
+          }
         }
-      } catch (e) {
-        titleEl.textContent = "OFF AIR / Flux indisponible…";
+      } catch (error) {
+        console.error("Erreur de refresh:", error);
+        titleEl.textContent = "OFF AIR";
         artistEl.textContent = "";
-        listenersEl.textContent = "";
-        coverImg.src = "cover.gif"; // fallback si erreur
+        listenersEl.textContent = "Auditeurs : --";
+        statusMessageEl.textContent = "Connexion au serveur en cours...";
+        coverImg.src = "cover.gif";
+        
+        // Réessayer après 30 secondes en cas d'échec
+        setTimeout(refresh, 30000);
       }
     }
 
-    player.addEventListener("play", () => {
+    function setupPlayer() {
+      // Démarrer le premier refresh immédiatement
       refresh();
-      setInterval(refresh, 15000);
-    }, { once: true });
+      
+      // Configurer l'intervalle de refresh
+      refreshInterval = setInterval(refresh, 15000);
+      
+      // Nettoyer l'intervalle quand la page est quittée
+      window.addEventListener('beforeunload', () => {
+        clearInterval(refreshInterval);
+      });
+    }
+
+    // Démarrer quand la page est prête
+    document.addEventListener('DOMContentLoaded', setupPlayer);
+    
+    // Également au cas où le lecteur serait joué
+    player.addEventListener("play", setupPlayer, { once: true });
   </script>
 </body>
 </html>
