@@ -1,149 +1,166 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Z Radio – Live Stream</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Z Radio — Lecteur</title>
+  <meta name="color-scheme" content="dark light" />
   <style>
-    :root {
-      --accent: #1db954;
-      --bg1: #0e0e0e;
-      --bg2: #232526;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --accent:#1db954; --bg1:#0e0e0e; --bg2:#232526; --muted:#a9a9a9; }
+    * { box-sizing:border-box; margin:0; padding:0; }
     body {
-      min-height: 100vh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      flex-direction: column;
-      font-family: system-ui, sans-serif;
-      background: linear-gradient(145deg, var(--bg1), var(--bg2));
-      color: #f5f5f5;
-      text-align: center;
-      padding: 1.2rem;
+      min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,'Helvetica Neue',Arial,sans-serif;
+      background:linear-gradient(145deg,var(--bg1),var(--bg2)); color:#f5f5f5; padding:28px 16px; text-align:center;
     }
-    h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em; }
-    small { color: #aaa; }
-    #coverWrapper {
-      width: 220px; height: 220px; border-radius: 8px;
-      box-shadow: 0 4px 16px rgba(0,0,0,.4);
-      margin: 1.3em 0 .8em;
-      overflow: hidden;
-    }
-    img#cover {
-      width: 100%; height: 100%; object-fit: cover;
-      display: block;
-    }
-    audio {
-      width: 220px; height: 40px;
-      margin-bottom: 1em;
-      filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
-    }
-    .meta { font-size: 1.05rem; margin-top: .3em; }
-    #listeners { font-size: .9rem; color: #ccc; margin-top: .2em; }
-    footer { margin-top: 2.5rem; font-size: .8rem; color: #888; }
-    a { color: var(--accent); }
-    .song-title { font-weight: bold; font-size: 1rem; }
-    .artist-name { margin-top: 0.2em; color: #aaa; font-size: 1rem; }
+    .brand { display:flex; align-items:center; gap:.6rem; margin-bottom:.4rem; }
+    .brand .logo { font-size:2rem; }
+    h1 { font-size:2.3rem; color:var(--accent); letter-spacing:.5px; }
+    .subtitle { color:var(--muted); margin-bottom:18px; }
+
+    .card { width:min(92vw,360px); background:rgba(0,0,0,.35); border-radius:14px; padding:18px; box-shadow:0 8px 24px rgba(0,0,0,.35); }
+    .cover-wrap { width:100%; aspect-ratio:1/1; border-radius:12px; overflow:hidden; box-shadow:0 6px 16px rgba(0,0,0,.45); }
+    #cover { width:100%; height:100%; object-fit:cover; display:block; }
+
+    audio { width:100%; margin:14px 0 2px; filter:drop-shadow(0 2px 8px rgba(0,0,0,.45)); }
+
+    .meta { margin-top:10px; }
+    .title { font-weight:700; font-size:1.05rem; line-height:1.3; }
+    .artist { color:var(--muted); margin-top:4px; }
+    .listeners { color:var(--muted); margin-top:8px; font-size:.95rem; }
+
+    .status { margin-top:14px; font-weight:600; color:#ffd166; min-height:1.2em; }
+    footer { margin-top:24px; color:#9a9a9a; font-size:.85rem; }
+    a { color:var(--accent); text-decoration:none; }
+    a:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
+  <div class="brand">
+    <div class="logo">🎵</div>
+    <h1>Z Radio</h1>
+  </div>
+  <div class="subtitle">Musique 24 / 7 – Hits & Classics</div>
 
-  <h1>🎵 Z Radio</h1>
-  <small>Musique 24 / 7 – Hits & Classics</small>
+  <div class="card">
+    <div class="cover-wrap">
+      <img id="cover" src="cover.gif" alt="Pochette d’album">
+    </div>
 
-  <div id="coverWrapper">
-    <img id="cover" src="cover.gif" alt="Pochette de l'album">
+    <audio id="player" controls preload="none">
+      <!-- important: passer par le proxy HTTPS (Caddy) -->
+      <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg" />
+      Votre navigateur ne supporte pas l’audio HTML5.
+    </audio>
+
+    <div class="meta">
+      <div id="title" class="title">Titre inconnu</div>
+      <div id="artist" class="artist">Artiste inconnu</div>
+      <div id="listeners" class="listeners">Auditeurs : 0</div>
+      <div id="status" class="status"></div>
+    </div>
   </div>
 
-  <audio id="player" controls preload="none">
-    <source src="http://z-radio.viewdns.net/stream" type="audio/mpeg">
-    Votre navigateur ne supporte pas l'audio HTML5.
-  </audio>
-
-  <div id="title" class="meta song-title">Chargement en cours...</div>
-  <div id="artist" class="artist-name"></div>
-  <div id="listeners">Auditeurs : --</div>
-
   <footer>
-    © 2025 <span style="color:var(--accent)">Z Radio</span> – Created by <span style="color:var(--accent)">Zakaria ELORCHE</span><br/>
-    Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
+    © 2025 <span style="color:var(--accent)">Z Radio</span> — Créé par <span style="color:var(--accent)">Zakaria ELORCHE</span><br>
+    Propulsé par <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
   <script>
-    const statusURL = "https://z-radio.viewdns.net/status-json.xsl"; 
-    const player = document.getElementById("player");
-    const coverImg = document.getElementById("cover");
-    const titleEl = document.getElementById("title");
-    const artistEl = document.getElementById("artist");
+    // -------- Configuration
+    const ICECAST_BASE = "https://z-radio.viewdns.net";
+    const STATUS_URL   = ICECAST_BASE + "/status-json.xsl";
+    const MOUNT        = "/stream";             // nom du point de montage attendu
+    const FALLBACK_IMG = "cover.gif";
+
+    // -------- Raccourcis DOM
+    const player      = document.getElementById("player");
+    const srcEl       = document.getElementById("src");
+    const coverEl     = document.getElementById("cover");
+    const titleEl     = document.getElementById("title");
+    const artistEl    = document.getElementById("artist");
     const listenersEl = document.getElementById("listeners");
+    const statusEl    = document.getElementById("status");
+
     let lastTitle = "";
 
-    async function fetchCoverItunes(query) {
+    // -------- Pochette (iTunes)
+    async function fetchItunesCover(query) {
+      const res  = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+      const data = await res.json();
+      const art  = data?.results?.[0]?.artworkUrl100;
+      return art ? art.replace("100x100", "600x600") : null;
+    }
+    async function setCover(query) {
       try {
-        const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-        const data = await res.json();
-        if (data.results && data.results[0]?.artworkUrl100) {
-          return data.results[0].artworkUrl100.replace("100x100", "600x600");
-        }
-        return "cover.gif";
-      } catch {
-        return "cover.gif";
-      }
+        const url = await fetchItunesCover(query);
+        coverEl.src = url || FALLBACK_IMG;
+      } catch { coverEl.src = FALLBACK_IMG; }
     }
 
+    // -------- Choisir la bonne source dans icestats
+    function getSource(icestats) {
+      let src = icestats?.source;
+      if (!src) return null;
+      if (Array.isArray(src)) {
+        return src.find(s => (s.listenurl || "").endsWith(MOUNT)) || src[0];
+      }
+      return src;
+    }
+
+    // -------- Mise à jour des métadonnées
     async function refresh() {
       try {
-        // Utilisation d'un proxy CORS simple
-        const proxyUrl = 'https://api.allorigins.win/raw?url=';
-        const r = await fetch(proxyUrl + encodeURIComponent(statusURL));
-        
-        if (!r.ok) return;
-        
+        const r = await fetch(STATUS_URL, { cache:"no-store" });
+        if (!r.ok) throw new Error("HTTP " + r.status);
         const data = await r.json();
-        let src = data.icestats.source;
-        
-        if (Array.isArray(src)) {
-          // Prendre la source avec des auditeurs ou la première
-          src = src.find(s => s.listeners > 0) || src[0];
-        }
-        
-        const rawTitle = src?.title || "En direct";
-        const listeners = src?.listeners || 0;
 
-        listenersEl.textContent = "Auditeurs : " + listeners;
+        const src = getSource(data.icestats);
+        if (!src) throw new Error("Aucune source Icecast");
 
-        if (rawTitle !== lastTitle) {
-          lastTitle = rawTitle;
-          
-          // Simple séparation du titre
-          if (rawTitle.includes(" - ")) {
-            const parts = rawTitle.split(" - ");
-            titleEl.textContent = parts[1] || "En direct";
-            artistEl.textContent = parts[0] || "Eurodance 90";
-          } else {
-            titleEl.textContent = rawTitle;
-            artistEl.textContent = "Eurodance 90";
-          }
-          
-          // Mettre à jour la pochette
-          const coverUrl = await fetchCoverItunes(`${artistEl.textContent} ${titleEl.textContent}`);
-          coverImg.src = coverUrl;
+        // auditeurs
+        listenersEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
+
+        // titre/artiste
+        const raw = src.title || "";
+        if (raw && raw !== lastTitle) {
+          lastTitle = raw;
+
+          let artist = "Artiste inconnu";
+          let title  = raw;
+
+          if (raw.includes(" – "))      [artist, title] = raw.split(" – ").map(s => s.trim());
+          else if (raw.includes(" - ")) [artist, title] = raw.split(" - ").map(s => s.trim());
+
+          titleEl.textContent  = title || "Titre inconnu";
+          artistEl.textContent = artist;
+
+          setCover(`${artist} ${title}`);
         }
-      } catch (e) {
-        console.log("Erreur de connexion, réessai dans 30s");
-        setTimeout(refresh, 30000);
+
+        // statut OK
+        statusEl.textContent = "";
+      } catch (err) {
+        // ne bloque pas la lecture audio ; informe juste
+        console?.error?.("Échec statut Icecast:", err);
+        statusEl.textContent = "Flux indisponible…";
+        coverEl.src = FALLBACK_IMG;
       }
     }
 
-    // Démarrer au chargement
+    // -------- Démarrage
+    // on force l’URL audio côté client (on ignore listenurl du JSON)
+    srcEl.src = ICECAST_BASE + MOUNT;
+
+    // première récup immédiate + polling
     refresh();
-    // Et régulièrement ensuite
-    setInterval(refresh, 10000);
-    
-    // Démarrer aussi quand le lecteur est joué
-    player.addEventListener("play", refresh);
+    setInterval(refresh, 15000);
+
+    // petit relogement si l’élément <audio> entre en erreur réseau
+    player.addEventListener("error", () => {
+      srcEl.src = ICECAST_BASE + MOUNT;
+      player.load();
+    });
   </script>
 </body>
 </html>
