@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Z Radio – Live Stream</title>
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9814928197980690" crossorigin="anonymous"></script>
   <style>
     :root {
       --accent: #1db954;
@@ -58,19 +59,101 @@
   </div>
 
   <audio id="player" controls preload="none">
-    <source src="https://stream-eurodance90.fr/radio/8000/128.mp3" type="audio/mpeg">
-    Votre navigateur ne supporte pas l'audio HTML5.
+    <source src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
+    Votre navigateur ne supporte pas l’audio HTML5.
   </audio>
 
-  <div id="title" class="meta song-title">Chargement en cours...</div>
-  <div id="artist" class="artist-name"></div>
-  <div id="listeners">Auditeurs : --</div>
+  <div id="title" class="meta song-title">Titre inconnu</div>
+  <div id="artist" class="artist-name">Artiste inconnu</div>
+  <br>
+  <div id="listeners">Auditeurs : 0</div>
 
   <footer>
     © 2025 <span style="color:var(--accent)">Z Radio</span> – Created by <span style="color:var(--accent)">Zakaria ELORCHE</span><br/>
     Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
- 
+  <ins class="adsbygoogle"
+     style="display:block; text-align:center; margin-top:20px;"
+     data-ad-client="ca-pub-9814928197980690"
+     data-ad-slot="XXXXXXXXXX"
+     data-ad-format="auto"
+     data-full-width-responsive="true"></ins>
+<script>
+     (adsbygoogle = window.adsbygoogle || []).push({});
+</script>
+
+  <script>
+    const statusURL = "https://z-radio.viewdns.net/status-json.xsl";
+    const player = document.getElementById("player");
+    const coverImg = document.getElementById("cover");
+    const titleEl = document.getElementById("title");
+    const artistEl = document.getElementById("artist");
+    const listenersEl = document.getElementById("listeners");
+    let lastTitle = "";
+
+    async function fetchCoverItunes(query) {
+      const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+      const data = await res.json();
+      if (data.results && data.results[0]?.artworkUrl100) {
+        return data.results[0].artworkUrl100.replace("100x100", "600x600");
+      }
+      throw new Error("iTunes no cover");
+    }
+
+    async function fetchCover(query) {
+      try {
+        const url = await fetchCoverItunes(query);
+        coverImg.src = url;
+      } catch {
+        coverImg.src = "cover.gif"; // fallback si erreur
+      }
+    }
+
+    async function refresh() {
+      try {
+        const r = await fetch(statusURL, { cache: "no-store" });
+        if (!r.ok) throw new Error(r.status);
+        const data = await r.json();
+        let src = data.icestats.source;
+        if (Array.isArray(src)) {
+          src = src.find(s => s.listenurl.endsWith("/stream")) || src[0];
+        }
+        
+        const rawTitle = src.title || "Titre inconnu";
+        const listeners = src.listeners ?? 0;
+
+        listenersEl.textContent = "Auditeurs : " + listeners;
+
+        if (rawTitle !== lastTitle && rawTitle !== "Titre inconnu") {
+          lastTitle = rawTitle;
+
+          let artist = "Artiste inconnu";
+          let title = rawTitle;
+
+          if (rawTitle.includes(" – ")) {
+            [artist, title] = rawTitle.split(" – ").map(s => s.trim());
+          } else if (rawTitle.includes(" - ")) {
+            [artist, title] = rawTitle.split(" - ").map(s => s.trim());
+          }
+
+          titleEl.textContent = title;
+          artistEl.textContent = artist;
+
+          fetchCover(`${artist} ${title}`);
+        }
+      } catch (e) {
+        titleEl.textContent = "Flux indisponible…";
+        artistEl.textContent = "";
+        listenersEl.textContent = "";
+        coverImg.src = "cover.gif"; // fallback si erreur
+      }
+    }
+
+    player.addEventListener("play", () => {
+      refresh();
+      setInterval(refresh, 15000);
+    }, { once: true });
+  </script>
 </body>
 </html>
