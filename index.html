@@ -4,29 +4,52 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Z Radio – Live Stream</title>
-  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9814928197980690" crossorigin="anonymous"></script>
   <style>
-    :root { --accent:#1db954; --bg1:#0e0e0e; --bg2:#232526; }
-    *{box-sizing:border-box;margin:0;padding:0}
-    body{
-      min-height:100vh;display:flex;justify-content:center;align-items:center;flex-direction:column;
-      font-family:system-ui,sans-serif;background:linear-gradient(145deg,var(--bg1),var(--bg2));
-      color:#f5f5f5;text-align:center;padding:1.2rem
+    :root {
+      --accent: #1db954;
+      --bg1: #0e0e0e;
+      --bg2: #232526;
     }
-    h1{font-size:2.6rem;color:var(--accent);margin-bottom:.2em}
-    small{color:#aaa}
-    #coverWrapper{width:220px;height:220px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.4);margin:1.3em 0 .8em;overflow:hidden}
-    img#cover{width:100%;height:100%;object-fit:cover;display:block}
-    audio{width:220px;height:40px;margin-bottom:1em;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))}
-    .meta{font-size:1.05rem;margin-top:.3em}
-    #listeners{font-size:.9rem;color:#ccc;margin-top:.2em}
-    footer{margin-top:2.5rem;font-size:.8rem;color:#888}
-    a{color:var(--accent)}
-    .song-title{font-weight:bold;font-size:1rem}
-    .artist-name{margin-top:.2em;color:#aaa;font-size:1rem}
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      font-family: system-ui, sans-serif;
+      background: linear-gradient(145deg, var(--bg1), var(--bg2));
+      color: #f5f5f5;
+      text-align: center;
+      padding: 1.2rem;
+    }
+    h1 { font-size: 2.6rem; color: var(--accent); margin-bottom: .2em; }
+    small { color: #aaa; }
+    #coverWrapper {
+      width: 220px; height: 220px; border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,.4);
+      margin: 1.3em 0 .8em;
+      overflow: hidden;
+    }
+    img#cover {
+      width: 100%; height: 100%; object-fit: cover;
+      display: block;
+    }
+    audio {
+      width: 220px; height: 40px;
+      margin-bottom: 1em;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,.5));
+    }
+    .meta { font-size: 1.05rem; margin-top: .3em; }
+    #listeners { font-size: .9rem; color: #ccc; margin-top: .2em; }
+    footer { margin-top: 2.5rem; font-size: .8rem; color: #888; }
+    a { color: var(--accent); }
+    .song-title { font-weight: bold; font-size: 1rem; }
+    .artist-name { margin-top: 0.2em; color: #aaa; font-size: 1rem; }
   </style>
 </head>
 <body>
+
   <h1>🎵 Z Radio</h1>
   <small>Musique 24 / 7 – Hits & Classics</small>
 
@@ -35,107 +58,92 @@
   </div>
 
   <audio id="player" controls preload="none">
-    <!-- ⬇️ pas de :8000 ici, on passe par Caddy en HTTPS -->
-    <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
-    Votre navigateur ne supporte pas l’audio HTML5.
+    <source src="http://z-radio.viewdns.net/stream" type="audio/mpeg">
+    Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
-  <div id="title" class="meta song-title">Titre inconnu</div>
-  <div id="artist" class="artist-name">Artiste inconnu</div>
-  <br>
-  <div id="listeners">Auditeurs : 0</div>
+  <div id="title" class="meta song-title">Chargement en cours...</div>
+  <div id="artist" class="artist-name"></div>
+  <div id="listeners">Auditeurs : --</div>
 
   <footer>
     © 2025 <span style="color:var(--accent)">Z Radio</span> – Created by <span style="color:var(--accent)">Zakaria ELORCHE</span><br/>
     Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
-  <ins class="adsbygoogle"
-     style="display:block; text-align:center; margin-top:20px;"
-     data-ad-client="ca-pub-9814928197980690"
-     data-ad-slot="XXXXXXXXXX"
-     data-ad-format="auto"
-     data-full-width-responsive="true"></ins>
-  <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
-
   <script>
-    // ---- config (⬇️ sans :8000)
-    const ICECAST_BASE = "https://z-radio.viewdns.net";
-    const STATUS_URL = ICECAST_BASE + "/status-json.xsl";
-    const MOUNT = "/stream";
-
-    // ---- dom
+    const statusURL = "https://z-radio.viewdns.net/status-json.xsl"; 
     const player = document.getElementById("player");
     const coverImg = document.getElementById("cover");
     const titleEl = document.getElementById("title");
     const artistEl = document.getElementById("artist");
     const listenersEl = document.getElementById("listeners");
-
     let lastTitle = "";
 
     async function fetchCoverItunes(query) {
-      const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-      const data = await res.json();
-      if (data.results && data.results[0] && data.results[0].artworkUrl100) {
-        return data.results[0].artworkUrl100.replace("100x100","600x600");
+      try {
+        const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+        const data = await res.json();
+        if (data.results && data.results[0]?.artworkUrl100) {
+          return data.results[0].artworkUrl100.replace("100x100", "600x600");
+        }
+        return "cover.gif";
+      } catch {
+        return "cover.gif";
       }
-      throw new Error("no cover");
-    }
-
-    async function setCover(query) {
-      try { coverImg.src = await fetchCoverItunes(query); }
-      catch { coverImg.src = "cover.gif"; }
-    }
-
-    function pickSource(icestats) {
-      let src = icestats.source;
-      if (!src) return null;
-      if (Array.isArray(src)) return src.find(s => (s.listenurl||"").endsWith(MOUNT)) || src[0];
-      return src;
     }
 
     async function refresh() {
       try {
-        const r = await fetch(STATUS_URL, { cache: "no-store" });
-        if (!r.ok) throw new Error("status " + r.status);
+        // Utilisation d'un proxy CORS simple
+        const proxyUrl = 'https://api.allorigins.win/raw?url=';
+        const r = await fetch(proxyUrl + encodeURIComponent(statusURL));
+        
+        if (!r.ok) return;
+        
         const data = await r.json();
-
-        const src = pickSource(data.icestats);
-        if (!src) throw new Error("no source");
-
-        listenersEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
-
-        const rawTitle = src.title || "";
-        if (rawTitle && rawTitle !== lastTitle) {
-          lastTitle = rawTitle;
-
-          let artist = "Artiste inconnu";
-          let title = rawTitle;
-
-          if (rawTitle.includes(" – "))       [artist, title] = rawTitle.split(" – ").map(s=>s.trim());
-          else if (rawTitle.includes(" - "))  [artist, title] = rawTitle.split(" - ").map(s=>s.trim());
-
-          titleEl.textContent = title || "Titre inconnu";
-          artistEl.textContent = artist;
-          setCover(`${artist} ${title}`);
+        let src = data.icestats.source;
+        
+        if (Array.isArray(src)) {
+          // Prendre la source avec des auditeurs ou la première
+          src = src.find(s => s.listeners > 0) || src[0];
         }
-      } catch {
-        titleEl.textContent = "Flux indisponible…";
-        artistEl.textContent = "";
-        listenersEl.textContent = "";
-        coverImg.src = "cover.gif";
+        
+        const rawTitle = src?.title || "En direct";
+        const listeners = src?.listeners || 0;
+
+        listenersEl.textContent = "Auditeurs : " + listeners;
+
+        if (rawTitle !== lastTitle) {
+          lastTitle = rawTitle;
+          
+          // Simple séparation du titre
+          if (rawTitle.includes(" - ")) {
+            const parts = rawTitle.split(" - ");
+            titleEl.textContent = parts[1] || "En direct";
+            artistEl.textContent = parts[0] || "Eurodance 90";
+          } else {
+            titleEl.textContent = rawTitle;
+            artistEl.textContent = "Eurodance 90";
+          }
+          
+          // Mettre à jour la pochette
+          const coverUrl = await fetchCoverItunes(`${artistEl.textContent} ${titleEl.textContent}`);
+          coverImg.src = coverUrl;
+        }
+      } catch (e) {
+        console.log("Erreur de connexion, réessai dans 30s");
+        setTimeout(refresh, 30000);
       }
     }
 
-    // on poll même sans lecture
+    // Démarrer au chargement
     refresh();
-    setInterval(refresh, 15000);
-
-    player.addEventListener("error", () => {
-      const el = document.getElementById("src");
-      el.src = ICECAST_BASE + MOUNT;
-      player.load();
-    });
+    // Et régulièrement ensuite
+    setInterval(refresh, 10000);
+    
+    // Démarrer aussi quand le lecteur est joué
+    player.addEventListener("play", refresh);
   </script>
 </body>
 </html>
