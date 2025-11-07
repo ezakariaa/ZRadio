@@ -59,7 +59,7 @@
   </div>
 
   <audio id="player" controls preload="none">
-    <source src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
+    <source src="https://z-radio.viewdns.net:8000/stream" type="audio/mpeg">
     Votre navigateur ne supporte pas l’audio HTML5.
   </audio>
 
@@ -73,18 +73,10 @@
     Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
-  <ins class="adsbygoogle"
-     style="display:block; text-align:center; margin-top:20px;"
-     data-ad-client="ca-pub-9814928197980690"
-     data-ad-slot="XXXXXXXXXX"
-     data-ad-format="auto"
-     data-full-width-responsive="true"></ins>
-<script>
-     (adsbygoogle = window.adsbygoogle || []).push({});
-</script>
+ 
 
   <script>
-    const statusURL = "https://z-radio.viewdns.net/status-json.xsl";
+    const statusURL = "https://z-radio.viewdns.net:8000/status-json.xsl";
     const player = document.getElementById("player");
     const coverImg = document.getElementById("cover");
     const titleEl = document.getElementById("title");
