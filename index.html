@@ -35,7 +35,8 @@
   </div>
 
   <audio id="player" controls preload="none">
-    <source id="src" src="https://z-radio.viewdns.net:8000/stream" type="audio/mpeg">
+    <!-- ⬇️ pas de :8000 ici, on passe par Caddy en HTTPS -->
+    <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
     Votre navigateur ne supporte pas l’audio HTML5.
   </audio>
 
@@ -58,8 +59,8 @@
   <script>(adsbygoogle = window.adsbygoogle || []).push({});</script>
 
   <script>
-    // ---- config
-    const ICECAST_BASE = "https://z-radio.viewdns.net:8000";
+    // ---- config (⬇️ sans :8000)
+    const ICECAST_BASE = "https://z-radio.viewdns.net";
     const STATUS_URL = ICECAST_BASE + "/status-json.xsl";
     const MOUNT = "/stream";
 
@@ -76,26 +77,21 @@
       const res = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
       const data = await res.json();
       if (data.results && data.results[0] && data.results[0].artworkUrl100) {
-        return data.results[0].artworkUrl100.replace("100x100", "600x600");
+        return data.results[0].artworkUrl100.replace("100x100","600x600");
       }
       throw new Error("no cover");
     }
 
     async function setCover(query) {
-      try {
-        coverImg.src = await fetchCoverItunes(query);
-      } catch {
-        coverImg.src = "cover.gif";
-      }
+      try { coverImg.src = await fetchCoverItunes(query); }
+      catch { coverImg.src = "cover.gif"; }
     }
 
     function pickSource(icestats) {
       let src = icestats.source;
       if (!src) return null;
-      if (Array.isArray(src)) {
-        return src.find(s => (s.listenurl || "").endsWith(MOUNT)) || src[0];
-      }
-      return src; // objet unique
+      if (Array.isArray(src)) return src.find(s => (s.listenurl||"").endsWith(MOUNT)) || src[0];
+      return src;
     }
 
     async function refresh() {
@@ -107,7 +103,6 @@
         const src = pickSource(data.icestats);
         if (!src) throw new Error("no source");
 
-        // écouteurs → toujours mis à jour
         listenersEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
 
         const rawTitle = src.title || "";
@@ -117,18 +112,14 @@
           let artist = "Artiste inconnu";
           let title = rawTitle;
 
-          if (rawTitle.includes(" – ")) {
-            [artist, title] = rawTitle.split(" – ").map(s => s.trim());
-          } else if (rawTitle.includes(" - ")) {
-            [artist, title] = rawTitle.split(" - ").map(s => s.trim());
-          }
+          if (rawTitle.includes(" – "))       [artist, title] = rawTitle.split(" – ").map(s=>s.trim());
+          else if (rawTitle.includes(" - "))  [artist, title] = rawTitle.split(" - ").map(s=>s.trim());
 
           titleEl.textContent = title || "Titre inconnu";
           artistEl.textContent = artist;
-
           setCover(`${artist} ${title}`);
         }
-      } catch (e) {
+      } catch {
         titleEl.textContent = "Flux indisponible…";
         artistEl.textContent = "";
         listenersEl.textContent = "";
@@ -136,13 +127,11 @@
       }
     }
 
-    // on poll même si l’utilisateur ne clique pas Play (meilleure UX)
+    // on poll même sans lecture
     refresh();
     setInterval(refresh, 15000);
 
-    // si le flux change un jour, on peut relier dynamiquement la source
     player.addEventListener("error", () => {
-      // petit retry: recharge la source (utile si la connexion a sauté)
       const el = document.getElementById("src");
       el.src = ICECAST_BASE + MOUNT;
       player.load();
