@@ -38,9 +38,8 @@
     <img id="cover" src="cover.gif" alt="Pochette de l'album">
   </div>
 
-  <!-- Démarrage plus rapide : on autorise un pré-buffer -->
   <audio id="player" controls preload="auto">
-    <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
+    <source id="src" src="https://z-radio.loca.lt/stream" type="audio/mpeg">
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
@@ -56,7 +55,7 @@
 
   <script>
     // ---- config
-    const ICECAST_BASE = "https://z-radio.viewdns.net";
+    const ICECAST_BASE = "https://z-radio.loca.lt";
     const STATUS_URL   = ICECAST_BASE + "/status-json.xsl";
     const MOUNT        = "/stream";
     const FALLBACK_IMG = "cover.gif";
@@ -72,29 +71,29 @@
 
     let lastTitle = "";
 
-    // ---- util
     function pickSource(icestats) {
       let s = icestats?.source;
       if (!s) return null;
       if (Array.isArray(s)) {
-        // on préfère le mount /stream ou la source avec des auditeurs
         return s.find(o => (o.listenurl||"").endsWith(MOUNT)) || s.find(o => (o.listeners||0) > 0) || s[0];
       }
       return s;
     }
 
     async function fetchCoverItunes(query) {
-      const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-      const d = await r.json();
-      const art = d?.results?.[0]?.artworkUrl100;
-      return art ? art.replace("100x100","600x600") : null;
+      try {
+        const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
+        const d = await r.json();
+        const art = d?.results?.[0]?.artworkUrl100;
+        return art ? art.replace("100x100","600x600") : null;
+      } catch {
+        return null;
+      }
     }
 
     async function setCover(query) {
-      try {
-        const url = await fetchCoverItunes(query);
-        coverEl.src = url || FALLBACK_IMG;
-      } catch { coverEl.src = FALLBACK_IMG; }
+      const url = await fetchCoverItunes(query);
+      coverEl.src = url || FALLBACK_IMG;
     }
 
     async function refresh() {
@@ -102,25 +101,20 @@
         const r = await fetch(STATUS_URL, { cache:"no-store" });
         if (!r.ok) throw new Error("HTTP " + r.status);
         const data = await r.json();
-
         const src = pickSource(data.icestats);
         if (!src) throw new Error("Aucune source");
 
-        // auditeurs
         listEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
 
-        // titre + artiste
         const raw = src.title || "";
         if (raw && raw !== lastTitle) {
           lastTitle = raw;
           let artist = "", title = raw;
-
           if (raw.includes(" – "))       [artist, title] = raw.split(" – ").map(s=>s.trim());
           else if (raw.includes(" - "))  [artist, title] = raw.split(" - ").map(s=>s.trim());
 
           titleEl.textContent  = title || "En direct";
           artistEl.textContent = artist || "";
-
           setCover((artist ? artist + " " : "") + title);
         }
 
@@ -132,14 +126,11 @@
       }
     }
 
-    // force l’URL lecture côté client (on ignore listenurl du JSON)
+    // Lecture côté client
     srcEl.src = ICECAST_BASE + MOUNT;
-
-    // premier fetch + polling régulier
     refresh();
     setInterval(refresh, 15000);
 
-    // si la lecture tombe en erreur réseau, on relie la source et on recharge
     player.addEventListener("error", () => {
       srcEl.src = ICECAST_BASE + MOUNT;
       player.load();
