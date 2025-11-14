@@ -50,17 +50,17 @@
 
   <footer>
     © 2025 <span style="color:var(--accent)">Z Radio</span> – Created by <span style="color:var(--accent)">Zakaria ELORCHE</span><br/>
-    Powered by <a href="https://icecast.org" target="_blank" rel="noopener">Icecast 2</a>
+    Powered by <a href="#" target="_blank" rel="noopener">Icecast 2</a>
   </footer>
 
   <script>
-    // ---- config
+    // ---- CONFIG
     const ICECAST_BASE = "https://z-radio.viewdns.net";
     const STATUS_URL   = ICECAST_BASE + "/status-json.xsl";
     const MOUNT        = "/stream";
     const FALLBACK_IMG = "cover.gif";
 
-    // ---- dom
+    // ---- DOM ELEMENTS
     const player   = document.getElementById("player");
     const srcEl    = document.getElementById("src");
     const coverEl  = document.getElementById("cover");
@@ -69,54 +69,58 @@
     const listEl   = document.getElementById("listeners");
     const statusEl = document.getElementById("status");
 
-    let lastTitle = "";
+    // --------------------------------------
+    // 🔵 Snip : Lecture du vrai titre / artiste
+    // --------------------------------------
+    async function refreshSnip() {
+      try {
+        const r = await fetch("Snip_Metadata.json", { cache: "no-store" });
+        const meta = await r.json();
 
+        if (meta.track)  titleEl.textContent  = meta.track;
+        if (meta.artist) artistEl.textContent = meta.artist;
+
+        // priorité à Snip Artwork
+        if (meta.cover) {
+          coverEl.src = meta.cover;
+        } else {
+          coverEl.src = FALLBACK_IMG;
+        }
+
+      } catch (e) {
+        console.warn("Snip error:", e);
+      }
+    }
+
+    refreshSnip();
+    setInterval(refreshSnip, 2000);
+
+    // --------------------------------------
+    // 🟢 Icecast : Auditeurs + fallback titre
+    // --------------------------------------
     function pickSource(icestats) {
       let s = icestats?.source;
       if (!s) return null;
       if (Array.isArray(s)) {
-        return s.find(o => (o.listenurl||"").endsWith(MOUNT)) || s.find(o => (o.listeners||0) > 0) || s[0];
+        return (
+          s.find(o => (o.listenurl || "").endsWith(MOUNT)) ||
+          s.find(o => (o.listeners || 0) > 0) ||
+          s[0]
+        );
       }
       return s;
     }
 
-    async function fetchCoverItunes(query) {
-      try {
-        const r = await fetch("https://itunes.apple.com/search?term=" + encodeURIComponent(query) + "&limit=1&media=music");
-        const d = await r.json();
-        const art = d?.results?.[0]?.artworkUrl100;
-        return art ? art.replace("100x100","600x600") : null;
-      } catch {
-        return null;
-      }
-    }
-
-    async function setCover(query) {
-      const url = await fetchCoverItunes(query);
-      coverEl.src = url || FALLBACK_IMG;
-    }
-
-    async function refresh() {
+    async function refreshIcecast() {
       try {
         const r = await fetch(STATUS_URL, { cache:"no-store" });
         if (!r.ok) throw new Error("HTTP " + r.status);
         const data = await r.json();
+
         const src = pickSource(data.icestats);
         if (!src) throw new Error("Aucune source");
 
         listEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
-
-        const raw = src.title || "";
-        if (raw && raw !== lastTitle) {
-          lastTitle = raw;
-          let artist = "", title = raw;
-          if (raw.includes(" – "))       [artist, title] = raw.split(" – ").map(s=>s.trim());
-          else if (raw.includes(" - "))  [artist, title] = raw.split(" - ").map(s=>s.trim());
-
-          titleEl.textContent  = title || "En direct";
-          artistEl.textContent = artist || "";
-          setCover((artist ? artist + " " : "") + title);
-        }
 
         statusEl.textContent = "";
       } catch (e) {
@@ -126,10 +130,13 @@
       }
     }
 
-    // Lecture côté client
+    refreshIcecast();
+    setInterval(refreshIcecast, 15000);
+
+    // --------------------------------------
+    // 🔁 Reconnexion auto en cas d’erreur lecteur
+    // --------------------------------------
     srcEl.src = ICECAST_BASE + MOUNT;
-    refresh();
-    setInterval(refresh, 15000);
 
     player.addEventListener("error", () => {
       srcEl.src = ICECAST_BASE + MOUNT;
