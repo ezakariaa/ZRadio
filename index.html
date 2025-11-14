@@ -56,7 +56,10 @@
   <script>
     // ---- CONFIG
     const ICECAST_BASE = "https://z-radio.viewdns.net";
-    const STATUS_URL   = ICECAST_BASE + "/status-json.xsl";
+    const STATUS_URLS  = [
+      ICECAST_BASE + "/status-json.xsl?mount=/stream",
+      ICECAST_BASE + "/status-json.xsl"
+    ];
     const MOUNT        = "/stream";
     const FALLBACK_IMG = "cover.gif";
 
@@ -69,6 +72,51 @@
     const listEl   = document.getElementById("listeners");
     const statusEl = document.getElementById("status");
 
+    let lastCoverKey = "";
+    let lastSnipUpdate = 0;
+
+    function normalizeText(str) {
+      if (!str) return "";
+      return str.replace(/^["'\s]+|["'\s]+$/g, "");
+    }
+
+    async function ensureCover(explicitCover, track, artist) {
+      const key = [explicitCover || "", track || "", artist || ""].join("|");
+      if (key === lastCoverKey) return;
+      lastCoverKey = key;
+
+      if (explicitCover) {
+        coverEl.src = explicitCover;
+        return;
+      }
+
+      const query = [artist, track].filter(Boolean).join(" ");
+      if (!query) {
+        coverEl.src = FALLBACK_IMG;
+        return;
+      }
+
+      try {
+        const url =
+          "https://itunes.apple.com/search?entity=song&limit=1&term=" +
+          encodeURIComponent(query);
+        const r = await fetch(url, { cache: "no-store" });
+        const data = await r.json();
+        const art =
+          data.results &&
+          data.results[0] &&
+          data.results[0].artworkUrl100;
+        if (art) {
+          coverEl.src = art.replace("100x100", "300x300");
+          return;
+        }
+      } catch (err) {
+        console.warn("Cover fetch error:", err);
+      }
+
+      coverEl.src = FALLBACK_IMG;
+    }
+
     // --------------------------------------
     // 🔵 Snip : Lecture du vrai titre / artiste
     // --------------------------------------
@@ -77,40 +125,14 @@
         const r = await fetch("Snip_Metadata.json", { cache: "no-store" });
         const meta = await r.json();
 
-        const track =
-          meta.track ??
-          meta.Track ??
-          meta.title ??
-          meta.Title ??
-          meta.song ??
-          meta.Song ??
-          null;
-        const artist =
-          meta.artist ??
-          meta.Artist ??
-          meta.author ??
-          meta.Author ??
-          null;
-        const cover =
-          meta.cover ??
-          meta.Cover ??
-          meta.albumArt ??
-          meta.AlbumArt ??
-          meta.albumArtUrl ??
-          meta.AlbumArtUrl ??
-          meta.albumArtLocation ??
-          meta.AlbumArtLocation ??
-          null;
+        const track  = meta.track  ? normalizeText(meta.track)  : "";
+        const artist = meta.artist ? normalizeText(meta.artist) : "";
 
         if (track)  titleEl.textContent  = track;
         if (artist) artistEl.textContent = artist;
 
-        // priorité à Snip Artwork
-        if (cover) {
-          coverEl.src = cover;
-        } else {
-          coverEl.src = FALLBACK_IMG;
-        }
+        await ensureCover(meta.cover, track, artist);
+        lastSnipUpdate = Date.now();
 
       } catch (e) {
         console.warn("Snip error:", e);
@@ -137,22 +159,57 @@
     }
 
     async function refreshIcecast() {
-      try {
-        const r = await fetch(STATUS_URL, { cache:"no-store" });
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const data = await r.json();
+      let lastError = null;
+      for (const url of STATUS_URLS) {
+        try {
+          const r = await fetch(url, { cache:"no-store", mode:"cors" });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          const data = await r.json();
 
-        const src = pickSource(data.icestats);
-        if (!src) throw new Error("Aucune source");
+          const src = pickSource(data.icestats);
+          if (!src) throw new Error("Aucune source");
 
-        listEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
+          listEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
+          statusEl.textContent = "";
 
-        statusEl.textContent = "";
-      } catch (e) {
-        console.error(e);
-        statusEl.textContent = "Flux indisponible…";
-        coverEl.src = FALLBACK_IMG;
+          const snipFresh = Date.now() - lastSnipUpdate < 7000;
+          const hasTitle = titleEl.textContent && titleEl.textContent !== "Chargement…";
+          const hasArtist = artistEl.textContent && artistEl.textContent.length > 0;
+
+          // fallback titre/artiste depuis Icecast si Snip inactif ou données manquantes
+          if (!snipFresh || !hasTitle || !hasArtist) {
+            const iceTitle = src.title || src.server_name || "";
+            if (iceTitle) {
+              const [artistPart, ...titleParts] = iceTitle.split(" - ");
+              let fallbackArtist = artistEl.textContent;
+              let fallbackTitleText = titleEl.textContent;
+
+              if ((!snipFresh || !hasArtist) && titleParts.length) {
+                fallbackArtist = normalizeText(artistPart);
+                artistEl.textContent = fallbackArtist;
+              }
+              if (!snipFresh || !hasTitle) {
+                const fallbackTitle = titleParts.length ? titleParts.join(" - ") : iceTitle;
+                fallbackTitleText = normalizeText(fallbackTitle);
+                titleEl.textContent = fallbackTitleText;
+              }
+
+              await ensureCover(null, fallbackTitleText, fallbackArtist);
+              if (!snipFresh) {
+                lastSnipUpdate = 0;
+              }
+            }
+          }
+
+          return;
+        } catch (e) {
+          lastError = e;
+        }
       }
+
+      console.error(lastError);
+      statusEl.textContent = "Flux indisponible…";
+      coverEl.src = FALLBACK_IMG;
     }
 
     refreshIcecast();
