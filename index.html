@@ -77,12 +77,37 @@
         const r = await fetch("Snip_Metadata.json", { cache: "no-store" });
         const meta = await r.json();
 
-        if (meta.track)  titleEl.textContent  = meta.track;
-        if (meta.artist) artistEl.textContent = meta.artist;
+        const track =
+          meta.track ??
+          meta.Track ??
+          meta.title ??
+          meta.Title ??
+          meta.song ??
+          meta.Song ??
+          null;
+        const artist =
+          meta.artist ??
+          meta.Artist ??
+          meta.author ??
+          meta.Author ??
+          null;
+        const cover =
+          meta.cover ??
+          meta.Cover ??
+          meta.albumArt ??
+          meta.AlbumArt ??
+          meta.albumArtUrl ??
+          meta.AlbumArtUrl ??
+          meta.albumArtLocation ??
+          meta.AlbumArtLocation ??
+          null;
+
+        if (track)  titleEl.textContent  = track;
+        if (artist) artistEl.textContent = artist;
 
         // priorité à Snip Artwork
-        if (meta.cover) {
-          coverEl.src = meta.cover;
+        if (cover) {
+          coverEl.src = cover;
         } else {
           coverEl.src = FALLBACK_IMG;
         }
