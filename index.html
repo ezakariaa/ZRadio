@@ -86,7 +86,9 @@
       lastCoverKey = key;
 
       if (explicitCover) {
-        coverEl.src = explicitCover;
+        // évite le cache quand Snip réécrit la même URL
+        const bust = explicitCover.includes("?") ? "&" : "?";
+        coverEl.src = explicitCover + bust + "t=" + Date.now();
         return;
       }
 
@@ -112,6 +114,33 @@
         }
       } catch (err) {
         console.warn("Cover fetch error:", err);
+      }
+
+      // Deuxième fournisseur : MusicBrainz + Cover Art Archive
+      try {
+        const mbQuery =
+          "https://musicbrainz.org/ws/2/recording/?fmt=json&limit=1&query=" +
+          encodeURIComponent(`recording:"${track}" AND artist:"${artist}"`);
+        const mr = await fetch(mbQuery, { cache: "no-store" });
+        const md = await mr.json();
+        const releaseId =
+          md.recordings &&
+          md.recordings[0] &&
+          md.recordings[0].releases &&
+          md.recordings[0].releases[0] &&
+          md.recordings[0].releases[0].id;
+        if (releaseId) {
+          // CAA expose CORS, on peut demander l'image directe
+          const caa = "https://coverartarchive.org/release/" + releaseId + "/front-500";
+          // On teste qu'elle existe
+          const imgResp = await fetch(caa, { method: "HEAD" });
+          if (imgResp.ok) {
+            coverEl.src = caa + "?t=" + Date.now();
+            return;
+          }
+        }
+      } catch (err2) {
+        console.warn("Cover MB/CoverArt error:", err2);
       }
 
       coverEl.src = FALLBACK_IMG;
@@ -220,9 +249,59 @@
     // --------------------------------------
     srcEl.src = ICECAST_BASE + MOUNT;
 
-    player.addEventListener("error", () => {
-      srcEl.src = ICECAST_BASE + MOUNT;
-      player.load();
+    let userPaused = false;
+    let reconnectTimer = null;
+    let retryDelayMs = 1500;
+
+    function scheduleReconnect() {
+      if (reconnectTimer) return;
+      reconnectTimer = setTimeout(async () => {
+        reconnectTimer = null;
+        try {
+          srcEl.src = ICECAST_BASE + MOUNT + "?t=" + Date.now();
+          player.load();
+          if (!userPaused) {
+            await player.play().catch(() => {});
+          }
+        } finally {
+          // backoff progressif jusqu'à 10s max
+          retryDelayMs = Math.min(retryDelayMs * 1.7, 10000);
+        }
+      }, retryDelayMs);
+    }
+
+    function onStreamProblem() {
+      if (document.visibilityState === "hidden") return; // évite spam quand onglet inactif
+      scheduleReconnect();
+    }
+
+    player.addEventListener("play", () => {
+      userPaused = false;
+      retryDelayMs = 1500;
+    });
+    player.addEventListener("pause", () => {
+      // Si c'est l'utilisateur qui a cliqué pause, on ne force pas la reprise
+      userPaused = true;
+    });
+
+    // Problèmes réseau fréquents
+    ["error", "stalled", "suspend", "waiting", "emptied", "abort"].forEach(evt => {
+      player.addEventListener(evt, onStreamProblem);
+    });
+
+    // Quand le flux redevient lisible
+    player.addEventListener("canplay", async () => {
+      if (!userPaused) {
+        await player.play().catch(() => {});
+      }
+    });
+
+    // Re-tente quand on revient sur l’onglet
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && player.paused && !userPaused) {
+        retryDelayMs = 1500;
+        scheduleReconnect();
+      }
     });
   </script>
 </body>
