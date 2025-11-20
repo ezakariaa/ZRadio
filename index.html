@@ -21,12 +21,30 @@
     img#cover{ width:100%; height:100%; object-fit:cover; display:block; }
     audio{ width:220px; height:40px; margin-bottom:1em; filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
     .meta{ font-size:1.05rem; margin-top:.3em; }
-    #listeners{ font-size:.9rem; color:#ccc; margin-top:.2em; }
+    #listeners{ font-size:.9rem; color:#ccc; margin-top:.2em; display:flex; align-items:center; justify-content:center; gap:.5rem; }
     footer{ margin-top:2.5rem; font-size:.8rem; color:#888; }
     a{ color:var(--accent); }
     .song-title{ font-weight:bold; font-size:1rem; }
     .artist-name{ margin-top:.2em; color:#aaa; font-size:1rem; }
     #status{ margin-top:.6rem; font-size:.9rem; color:#ffd166; min-height:1.1em; }
+    
+    /* Animation des barres audio */
+    .audio-bars{
+      display:inline-flex; align-items:center; gap:2px; height:16px; margin-left:.3rem;
+    }
+    .audio-bar{
+      width:3px; background:var(--accent); border-radius:2px; animation:audioWave 1.2s ease-in-out infinite;
+    }
+    .audio-bar:nth-child(1){ animation-delay:0s; height:8px; }
+    .audio-bar:nth-child(2){ animation-delay:0.1s; height:12px; }
+    .audio-bar:nth-child(3){ animation-delay:0.2s; height:16px; }
+    .audio-bar:nth-child(4){ animation-delay:0.3s; height:12px; }
+    .audio-bar:nth-child(5){ animation-delay:0.4s; height:8px; }
+    .audio-bars.hidden{ display:none; }
+    @keyframes audioWave{
+      0%, 100%{ transform:scaleY(0.3); opacity:0.7; }
+      50%{ transform:scaleY(1); opacity:1; }
+    }
   </style>
 </head>
 <body>
@@ -38,14 +56,32 @@
     <img id="cover" src="cover.gif" alt="Pochette de l'album">
   </div>
 
-  <audio id="player" controls preload="auto">
+  <!-- Player principal -->
+  <audio id="player" controls preload="none" crossorigin="anonymous">
     <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
+    <source id="src2" src="https://z-radio.viewdns.net/stream" type="audio/mp3">
+    Votre navigateur ne supporte pas l'audio HTML5.
+  </audio>
+
+  <!-- Intro audio -->
+  <audio id="introPlayer" preload="auto">
+    <source src="intro.mp3" type="audio/mpeg">
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
   <div id="title" class="meta song-title">Chargement…</div>
   <div id="artist" class="artist-name"></div>
-  <div id="listeners">Auditeurs : --</div>
+  <br>
+  <div id="listeners">
+    Auditeurs : <span id="listenerCount">--</span>
+    <span id="audioBars" class="audio-bars hidden">
+      <span class="audio-bar"></span>
+      <span class="audio-bar"></span>
+      <span class="audio-bar"></span>
+      <span class="audio-bar"></span>
+      <span class="audio-bar"></span>
+    </span>
+  </div>
   <div id="status"></div>
 
   <footer>
@@ -54,7 +90,6 @@
   </footer>
 
   <script>
-    // ---- CONFIG
     const ICECAST_BASE = "https://z-radio.viewdns.net";
     const STATUS_URLS  = [
       ICECAST_BASE + "/status-json.xsl?mount=/stream",
@@ -63,9 +98,8 @@
     const MOUNT        = "/stream";
     const FALLBACK_IMG = "cover.gif";
 
-    // ---- DOM ELEMENTS
     const player   = document.getElementById("player");
-    const srcEl    = document.getElementById("src");
+    const introPlayer = document.getElementById("introPlayer");
     const coverEl  = document.getElementById("cover");
     const titleEl  = document.getElementById("title");
     const artistEl = document.getElementById("artist");
@@ -74,6 +108,11 @@
 
     let lastCoverKey = "";
     let lastSnipUpdate = 0;
+    let lastTrackKey = "";
+    let userPaused = false;
+    let isLoading = false;
+    let statusFailCount = 0;
+    const STATUS_FAIL_THRESHOLD = 3;
 
     function normalizeText(str) {
       if (!str) return "";
@@ -86,7 +125,6 @@
       lastCoverKey = key;
 
       if (explicitCover) {
-        // évite le cache quand Snip réécrit la même URL
         const bust = explicitCover.includes("?") ? "&" : "?";
         coverEl.src = explicitCover + bust + "t=" + Date.now();
         return;
@@ -116,46 +154,25 @@
         console.warn("Cover fetch error:", err);
       }
 
-      // Deuxième fournisseur : MusicBrainz + Cover Art Archive
-      try {
-        const mbQuery =
-          "https://musicbrainz.org/ws/2/recording/?fmt=json&limit=1&query=" +
-          encodeURIComponent(`recording:"${track}" AND artist:"${artist}"`);
-        const mr = await fetch(mbQuery, { cache: "no-store" });
-        const md = await mr.json();
-        const releaseId =
-          md.recordings &&
-          md.recordings[0] &&
-          md.recordings[0].releases &&
-          md.recordings[0].releases[0] &&
-          md.recordings[0].releases[0].id;
-        if (releaseId) {
-          // CAA expose CORS, on peut demander l'image directe
-          const caa = "https://coverartarchive.org/release/" + releaseId + "/front-500";
-          // On teste qu'elle existe
-          const imgResp = await fetch(caa, { method: "HEAD" });
-          if (imgResp.ok) {
-            coverEl.src = caa + "?t=" + Date.now();
-            return;
-          }
-        }
-      } catch (err2) {
-        console.warn("Cover MB/CoverArt error:", err2);
-      }
-
       coverEl.src = FALLBACK_IMG;
     }
 
-    // --------------------------------------
-    // 🔵 Snip : Lecture du vrai titre / artiste
-    // --------------------------------------
     async function refreshSnip() {
+      if (window.location.protocol === "file:") return;
       try {
         const r = await fetch("Snip_Metadata.json", { cache: "no-store" });
+        if (!r.ok) return;
         const meta = await r.json();
 
         const track  = meta.track  ? normalizeText(meta.track)  : "";
         const artist = meta.artist ? normalizeText(meta.artist) : "";
+        const currentKey = track + "|" + artist;
+
+        // Si le morceau a changé, réinitialiser lastCoverKey pour forcer la mise à jour
+        if (currentKey !== lastTrackKey) {
+          lastCoverKey = "";
+          lastTrackKey = currentKey;
+        }
 
         if (track)  titleEl.textContent  = track;
         if (artist) artistEl.textContent = artist;
@@ -163,17 +180,14 @@
         await ensureCover(meta.cover, track, artist);
         lastSnipUpdate = Date.now();
 
-      } catch (e) {
-        console.warn("Snip error:", e);
-      }
+      } catch (e) { }
     }
 
-    refreshSnip();
-    setInterval(refreshSnip, 2000);
+    if (window.location.protocol !== "file:") {
+      refreshSnip();
+      setInterval(refreshSnip, 2000);
+    }
 
-    // --------------------------------------
-    // 🟢 Icecast : Auditeurs + fallback titre
-    // --------------------------------------
     function pickSource(icestats) {
       let s = icestats?.source;
       if (!s) return null;
@@ -189,8 +203,10 @@
 
     async function refreshIcecast() {
       let lastError = null;
-      for (const url of STATUS_URLS) {
+      for (const baseUrl of STATUS_URLS) {
         try {
+          // Cache-busting pour éviter les réponses en cache
+          const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
           const r = await fetch(url, { cache:"no-store", mode:"cors" });
           if (!r.ok) throw new Error("HTTP " + r.status);
           const data = await r.json();
@@ -198,35 +214,42 @@
           const src = pickSource(data.icestats);
           if (!src) throw new Error("Aucune source");
 
-          listEl.textContent = "Auditeurs : " + (src.listeners ?? 0);
+          const listenerCount = src.listeners ?? 0;
+          const countSpan = document.getElementById("listenerCount");
+          if (countSpan) countSpan.textContent = listenerCount;
+
           statusEl.textContent = "";
+          statusFailCount = 0;
 
           const snipFresh = Date.now() - lastSnipUpdate < 7000;
           const hasTitle = titleEl.textContent && titleEl.textContent !== "Chargement…";
           const hasArtist = artistEl.textContent && artistEl.textContent.length > 0;
 
-          // fallback titre/artiste depuis Icecast si Snip inactif ou données manquantes
-          if (!snipFresh || !hasTitle || !hasArtist) {
-            const iceTitle = src.title || src.server_name || "";
-            if (iceTitle) {
-              const [artistPart, ...titleParts] = iceTitle.split(" - ");
-              let fallbackArtist = artistEl.textContent;
-              let fallbackTitleText = titleEl.textContent;
+          // Extraire les métadonnées Icecast
+          const iceTitle = src.title || src.server_name || "";
+          if (iceTitle) {
+            const [artistPart, ...titleParts] = iceTitle.split(" - ");
+            const iceArtist = titleParts.length ? normalizeText(artistPart) : "";
+            const iceTrack = titleParts.length ? normalizeText(titleParts.join(" - ")) : normalizeText(iceTitle);
+            const iceKey = iceTrack + "|" + iceArtist;
 
-              if ((!snipFresh || !hasArtist) && titleParts.length) {
-                fallbackArtist = normalizeText(artistPart);
-                artistEl.textContent = fallbackArtist;
+            // Toujours mettre à jour si Snip n'est pas frais OU si les données manquent OU si le morceau a changé
+            if (!snipFresh || !hasTitle || !hasArtist || iceKey !== lastTrackKey) {
+              if ((!snipFresh || !hasArtist) && iceArtist) {
+                artistEl.textContent = iceArtist;
               }
-              if (!snipFresh || !hasTitle) {
-                const fallbackTitle = titleParts.length ? titleParts.join(" - ") : iceTitle;
-                fallbackTitleText = normalizeText(fallbackTitle);
-                titleEl.textContent = fallbackTitleText;
+              if ((!snipFresh || !hasTitle) && iceTrack) {
+                titleEl.textContent = iceTrack;
               }
-
-              await ensureCover(null, fallbackTitleText, fallbackArtist);
-              if (!snipFresh) {
-                lastSnipUpdate = 0;
+              
+              // Si le morceau a changé, réinitialiser lastCoverKey
+              if (iceKey !== lastTrackKey) {
+                lastCoverKey = "";
+                lastTrackKey = iceKey;
               }
+              
+              await ensureCover(null, titleEl.textContent, artistEl.textContent);
+              if (!snipFresh) lastSnipUpdate = 0;
             }
           }
 
@@ -237,71 +260,54 @@
       }
 
       console.error(lastError);
-      statusEl.textContent = "Flux indisponible…";
-      coverEl.src = FALLBACK_IMG;
+      statusFailCount++;
+      // Ne pas afficher si l'audio joue correctement
+      const playerLooksOk = !player.paused && player.readyState >= 2;
+      if (!playerLooksOk && statusFailCount >= STATUS_FAIL_THRESHOLD) {
+        statusEl.textContent = "Flux indisponible…";
+        coverEl.src = FALLBACK_IMG;
+      }
     }
 
     refreshIcecast();
     setInterval(refreshIcecast, 15000);
 
-    // --------------------------------------
-    // 🔁 Reconnexion auto en cas d’erreur lecteur
-    // --------------------------------------
-    srcEl.src = ICECAST_BASE + MOUNT;
-
-    let userPaused = false;
-    let reconnectTimer = null;
-    let retryDelayMs = 1500;
-
-    function scheduleReconnect() {
-      if (reconnectTimer) return;
-      reconnectTimer = setTimeout(async () => {
-        reconnectTimer = null;
-        try {
-          srcEl.src = ICECAST_BASE + MOUNT + "?t=" + Date.now();
-          player.load();
-          if (!userPaused) {
-            await player.play().catch(() => {});
-          }
-        } finally {
-          // backoff progressif jusqu'à 10s max
-          retryDelayMs = Math.min(retryDelayMs * 1.7, 10000);
-        }
-      }, retryDelayMs);
-    }
-
-    function onStreamProblem() {
-      if (document.visibilityState === "hidden") return; // évite spam quand onglet inactif
-      scheduleReconnect();
-    }
-
-    player.addEventListener("play", () => {
+    // ---- CLIC UTILISATEUR → Intro puis flux principal
+    player.addEventListener("play", async () => {
       userPaused = false;
-      retryDelayMs = 1500;
+
+      if (player.readyState === 0 || player.networkState === 0) {
+        // Jouer l’intro
+        introPlayer.currentTime = 0;
+        await introPlayer.play().catch(() => {});
+
+        // Dès que l’intro se termine, lancer le flux principal
+        introPlayer.onended = () => {
+          player.load();
+          player.play().catch(() => {});
+        };
+
+      } else {
+        if (player.paused) player.play().catch(() => {});
+      }
     });
+
     player.addEventListener("pause", () => {
-      // Si c'est l'utilisateur qui a cliqué pause, on ne force pas la reprise
       userPaused = true;
+      const audioBars = document.getElementById("audioBars");
+      if (audioBars) audioBars.classList.add("hidden");
     });
 
-    // Problèmes réseau fréquents
-    ["error", "stalled", "suspend", "waiting", "emptied", "abort"].forEach(evt => {
-      player.addEventListener(evt, onStreamProblem);
+    player.addEventListener("playing", () => {
+      const audioBars = document.getElementById("audioBars");
+      if (audioBars) audioBars.classList.remove("hidden");
     });
 
-    // Quand le flux redevient lisible
-    player.addEventListener("canplay", async () => {
-      if (!userPaused) {
-        await player.play().catch(() => {});
-      }
-    });
-
-    // Re-tente quand on revient sur l’onglet
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && player.paused && !userPaused) {
-        retryDelayMs = 1500;
-        scheduleReconnect();
-      }
+    player.addEventListener("error", (e) => {
+      statusEl.textContent = "Erreur de lecture";
+      console.error("Erreur lecteur:", player.error);
+      // En cas d'erreur, jouer l'intro si possible
+      if (introPlayer.paused) introPlayer.play().catch(() => {});
     });
   </script>
 </body>
