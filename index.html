@@ -22,6 +22,8 @@
     audio{ width:220px; height:40px; margin-bottom:1em; filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
     .meta{ font-size:1.05rem; margin-top:.3em; }
     #listeners{ font-size:.9rem; color:#ccc; margin-top:.2em; display:flex; align-items:center; justify-content:center; gap:.5rem; }
+    #previousTrack{ font-size:.85rem; color:#888; margin-top:.5em; font-style:italic; }
+    #previousTrack .label{ color:#aaa; }
     footer{ margin-top:2.5rem; font-size:.8rem; color:#888; }
     a{ color:var(--accent); }
     .song-title{ font-weight:bold; font-size:1rem; }
@@ -82,6 +84,7 @@
       <span class="audio-bar"></span>
     </span>
   </div>
+  <div id="previousTrack"></div>
   <div id="status"></div>
 
   <footer>
@@ -105,10 +108,12 @@
     const artistEl = document.getElementById("artist");
     const listEl   = document.getElementById("listeners");
     const statusEl = document.getElementById("status");
+    const previousTrackEl = document.getElementById("previousTrack");
 
     let lastCoverKey = "";
     let lastSnipUpdate = 0;
     let lastTrackKey = "";
+    let previousTrackData = null; // Stocker la dernière chanson en mémoire
     let userPaused = false;
     let isLoading = false;
     let statusFailCount = 0;
@@ -157,6 +162,105 @@
       coverEl.src = FALLBACK_IMG;
     }
 
+    function updatePreviousTrackDisplay() {
+      if (!previousTrackEl) return;
+      
+      if (previousTrackData && previousTrackData.track) {
+        const display = previousTrackData.artist 
+          ? `${previousTrackData.artist} - ${previousTrackData.track}`
+          : previousTrackData.track;
+        previousTrackEl.innerHTML = `<span class="label">Précédent :</span> ${display}`;
+      } else {
+        previousTrackEl.textContent = "";
+      }
+    }
+
+    async function refreshPreviousTrack() {
+      if (window.location.protocol === "file:") return;
+      
+      const historyFiles = [
+        "Snip_History.json",
+        "Snip_PlayHistory.json",
+        "history.json",
+        "playhistory.json",
+        "Snip_Metadata.json"
+      ];
+
+      for (const file of historyFiles) {
+        try {
+          const r = await fetch(file, { cache: "no-store" });
+          if (!r.ok) continue;
+          const data = await r.json();
+
+          // Différents formats possibles de l'historique Snip
+          let history = null;
+          
+          if (Array.isArray(data)) {
+            // Format: [{track, artist, ...}, ...]
+            history = data;
+          } else if (data.history && Array.isArray(data.history)) {
+            // Format: {history: [...]}
+            history = data.history;
+          } else if (data.previous) {
+            // Format: {previous: {track, artist}}
+            history = [data.previous];
+          } else if (data.last && data.last.track) {
+            // Format: {last: {track, artist}}
+            history = [data.last];
+          } else if (data.previousTrack || data.previousTitle) {
+            // Format: {previousTrack: "...", previousArtist: "..."}
+            const prevTrack = normalizeText(data.previousTrack || data.previousTitle || "");
+            const prevArtist = normalizeText(data.previousArtist || data.previousArtistName || "");
+            if (prevTrack || prevArtist) {
+              previousTrackData = { track: prevTrack, artist: prevArtist };
+              updatePreviousTrackDisplay();
+              return;
+            }
+          } else if (data.tracks && Array.isArray(data.tracks)) {
+            // Format: {tracks: [...]}
+            history = data.tracks;
+          }
+
+          if (history && history.length > 0) {
+            // Prendre l'avant-dernière entrée (la dernière étant la chanson actuelle)
+            const currentTrack = titleEl.textContent;
+            const currentArtist = artistEl.textContent;
+            
+            // Trouver la dernière entrée qui n'est pas la chanson actuelle
+            let previous = null;
+            for (let i = history.length - 1; i >= 0; i--) {
+              const entry = history[i];
+              const entryTrack = normalizeText(entry.track || entry.title || entry.name || "");
+              const entryArtist = normalizeText(entry.artist || entry.artistName || entry.artist_name || "");
+              
+              if (entryTrack && entryArtist) {
+                if (entryTrack !== currentTrack || entryArtist !== currentArtist) {
+                  previous = { track: entryTrack, artist: entryArtist };
+                  break;
+                }
+              } else if (entryTrack && !currentTrack) {
+                // Si on n'a pas de chanson actuelle, prendre la dernière disponible
+                previous = { track: entryTrack, artist: entryArtist || "" };
+                break;
+              }
+            }
+
+            if (previous) {
+              previousTrackData = previous;
+              updatePreviousTrackDisplay();
+            }
+            return;
+          }
+        } catch (e) {
+          // Continuer avec le fichier suivant
+          console.debug("Erreur lecture historique:", file, e);
+        }
+      }
+      
+      // Si aucun historique trouvé mais qu'on a une valeur en mémoire, l'afficher
+      updatePreviousTrackDisplay();
+    }
+
     async function refreshSnip() {
       if (window.location.protocol === "file:") return;
       try {
@@ -168,10 +272,22 @@
         const artist = meta.artist ? normalizeText(meta.artist) : "";
         const currentKey = track + "|" + artist;
 
+        // Si le morceau a changé, sauvegarder l'ancien comme précédent
+        if (currentKey !== lastTrackKey && lastTrackKey) {
+          const oldTrack = titleEl.textContent;
+          const oldArtist = artistEl.textContent;
+          if (oldTrack && oldTrack !== "Chargement…") {
+            previousTrackData = { track: oldTrack, artist: oldArtist };
+            updatePreviousTrackDisplay();
+          }
+        }
+
         // Si le morceau a changé, réinitialiser lastCoverKey pour forcer la mise à jour
         if (currentKey !== lastTrackKey) {
           lastCoverKey = "";
           lastTrackKey = currentKey;
+          // Rafraîchir l'historique quand le morceau change
+          refreshPreviousTrack();
         }
 
         if (track)  titleEl.textContent  = track;
@@ -185,7 +301,11 @@
 
     if (window.location.protocol !== "file:") {
       refreshSnip();
+      refreshPreviousTrack();
       setInterval(refreshSnip, 2000);
+      setInterval(refreshPreviousTrack, 3000);
+      // Afficher immédiatement si on a déjà des données en mémoire
+      updatePreviousTrackDisplay();
     }
 
     function pickSource(icestats) {
@@ -235,6 +355,16 @@
 
             // Toujours mettre à jour si Snip n'est pas frais OU si les données manquent OU si le morceau a changé
             if (!snipFresh || !hasTitle || !hasArtist || iceKey !== lastTrackKey) {
+              // Si le morceau a changé, sauvegarder l'ancien comme précédent
+              if (iceKey !== lastTrackKey && lastTrackKey) {
+                const oldTrack = titleEl.textContent;
+                const oldArtist = artistEl.textContent;
+                if (oldTrack && oldTrack !== "Chargement…") {
+                  previousTrackData = { track: oldTrack, artist: oldArtist };
+                  updatePreviousTrackDisplay();
+                }
+              }
+
               if ((!snipFresh || !hasArtist) && iceArtist) {
                 artistEl.textContent = iceArtist;
               }
@@ -242,10 +372,11 @@
                 titleEl.textContent = iceTrack;
               }
               
-              // Si le morceau a changé, réinitialiser lastCoverKey
+              // Si le morceau a changé, réinitialiser lastCoverKey et rafraîchir l'historique
               if (iceKey !== lastTrackKey) {
                 lastCoverKey = "";
                 lastTrackKey = iceKey;
+                refreshPreviousTrack();
               }
               
               await ensureCover(null, titleEl.textContent, artistEl.textContent);
