@@ -21,9 +21,16 @@
     img#cover{ width:100%; height:100%; object-fit:cover; display:block; }
     audio{ width:220px; height:40px; margin-bottom:1em; filter:drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
     .meta{ font-size:1.05rem; margin-top:.3em; }
-    #listeners{ font-size:.9rem; color:#ccc; margin-top:.2em; display:flex; align-items:center; justify-content:center; gap:.5rem; }
-    #previousTrack{ font-size:.85rem; color:#888; margin-top:.5em; font-style:italic; }
-    #previousTrack .label{ color:#aaa; }
+    #listeners{ font-size:.9rem; color:#ccc; margin-top:.2em; margin-bottom:.6em; display:flex; align-items:center; justify-content:center; gap:.5rem; }
+    #previousTrack{ margin-top:.8em; width:100%; max-width:300px; }
+    #previousTrack .label{ font-size:.75rem; color:#888; margin-bottom:.3em; display:block; }
+    #previousTrack table{ width:100%; border-collapse:collapse; }
+    #previousTrack td{ padding:.3em; vertical-align:middle; }
+    #previousTrack .prev-cover{ width:60px; padding-right:.5em; }
+    #previousTrack .prev-cover img{ width:60px; height:60px; border-radius:4px; object-fit:cover; box-shadow:0 2px 8px rgba(0,0,0,.3); }
+    #previousTrack .prev-info{ font-size:.85rem; }
+    #previousTrack .prev-artist{ color:#aaa; font-size:.8rem; margin-bottom:.2em; }
+    #previousTrack .prev-title{ color:#f5f5f5; font-weight:500; font-size:.85rem; }
     footer{ margin-top:2.5rem; font-size:.8rem; color:#888; }
     a{ color:var(--accent); }
     .song-title{ font-weight:bold; font-size:1rem; }
@@ -162,14 +169,45 @@
       coverEl.src = FALLBACK_IMG;
     }
 
-    function updatePreviousTrackDisplay() {
+    async function updatePreviousTrackDisplay() {
       if (!previousTrackEl) return;
       
       if (previousTrackData && previousTrackData.track) {
-        const display = previousTrackData.artist 
-          ? `${previousTrackData.artist} - ${previousTrackData.track}`
-          : previousTrackData.track;
-        previousTrackEl.innerHTML = `<span class="label">Précédent :</span> ${display}`;
+        // Récupérer la cover de la chanson précédente
+        let coverUrl = previousTrackData.cover || FALLBACK_IMG;
+        
+        // Si pas de cover explicite, chercher via iTunes
+        if (!previousTrackData.cover && previousTrackData.artist && previousTrackData.track) {
+          try {
+            const query = [previousTrackData.artist, previousTrackData.track].filter(Boolean).join(" ");
+            const url = "https://itunes.apple.com/search?entity=song&limit=1&term=" + encodeURIComponent(query);
+            const r = await fetch(url, { cache: "no-store" });
+            const data = await r.json();
+            if (data.results && data.results[0] && data.results[0].artworkUrl100) {
+              coverUrl = data.results[0].artworkUrl100.replace("100x100", "300x300");
+            }
+          } catch (err) {
+            // Garder FALLBACK_IMG en cas d'erreur
+          }
+        }
+        
+        const artist = previousTrackData.artist || "";
+        const track = previousTrackData.track || "";
+        
+        previousTrackEl.innerHTML = `
+          <span class="label">Précédent :</span>
+          <table>
+            <tr>
+              <td class="prev-cover">
+                <img src="${coverUrl}" alt="Cover précédent" onerror="this.src='${FALLBACK_IMG}'">
+              </td>
+              <td class="prev-info">
+                <div class="prev-artist">${artist || "Artiste inconnu"}</div>
+                <div class="prev-title">${track}</div>
+              </td>
+            </tr>
+          </table>
+        `;
       } else {
         previousTrackEl.textContent = "";
       }
@@ -208,11 +246,15 @@
             // Format: {last: {track, artist}}
             history = [data.last];
           } else if (data.previousTrack || data.previousTitle) {
-            // Format: {previousTrack: "...", previousArtist: "..."}
+            // Format: {previousTrack: "...", previousArtist: "...", previousCover: "..."}
             const prevTrack = normalizeText(data.previousTrack || data.previousTitle || "");
             const prevArtist = normalizeText(data.previousArtist || data.previousArtistName || "");
             if (prevTrack || prevArtist) {
-              previousTrackData = { track: prevTrack, artist: prevArtist };
+              previousTrackData = { 
+                track: prevTrack, 
+                artist: prevArtist,
+                cover: data.previousCover || data.previousAlbumArt || null
+              };
               updatePreviousTrackDisplay();
               return;
             }
@@ -235,12 +277,20 @@
               
               if (entryTrack && entryArtist) {
                 if (entryTrack !== currentTrack || entryArtist !== currentArtist) {
-                  previous = { track: entryTrack, artist: entryArtist };
+                  previous = { 
+                    track: entryTrack, 
+                    artist: entryArtist,
+                    cover: entry.cover || entry.albumArt || entry.artwork || null
+                  };
                   break;
                 }
               } else if (entryTrack && !currentTrack) {
                 // Si on n'a pas de chanson actuelle, prendre la dernière disponible
-                previous = { track: entryTrack, artist: entryArtist || "" };
+                previous = { 
+                  track: entryTrack, 
+                  artist: entryArtist || "",
+                  cover: entry.cover || entry.albumArt || entry.artwork || null
+                };
                 break;
               }
             }
@@ -276,8 +326,13 @@
         if (currentKey !== lastTrackKey && lastTrackKey) {
           const oldTrack = titleEl.textContent;
           const oldArtist = artistEl.textContent;
+          const oldCover = coverEl.src; // Sauvegarder la cover actuelle
           if (oldTrack && oldTrack !== "Chargement…") {
-            previousTrackData = { track: oldTrack, artist: oldArtist };
+            previousTrackData = { 
+              track: oldTrack, 
+              artist: oldArtist,
+              cover: oldCover !== FALLBACK_IMG ? oldCover : null // Ne pas stocker le fallback
+            };
             updatePreviousTrackDisplay();
           }
         }
@@ -359,8 +414,13 @@
               if (iceKey !== lastTrackKey && lastTrackKey) {
                 const oldTrack = titleEl.textContent;
                 const oldArtist = artistEl.textContent;
+                const oldCover = coverEl.src; // Sauvegarder la cover actuelle
                 if (oldTrack && oldTrack !== "Chargement…") {
-                  previousTrackData = { track: oldTrack, artist: oldArtist };
+                  previousTrackData = { 
+                    track: oldTrack, 
+                    artist: oldArtist,
+                    cover: oldCover !== FALLBACK_IMG ? oldCover : null // Ne pas stocker le fallback
+                  };
                   updatePreviousTrackDisplay();
                 }
               }
@@ -433,6 +493,12 @@
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
     });
+
+    // Vérifier l'état initial du lecteur
+    if (!player.paused && player.readyState >= 2) {
+      const audioBars = document.getElementById("audioBars");
+      if (audioBars) audioBars.classList.remove("hidden");
+    }
 
     player.addEventListener("error", (e) => {
       statusEl.textContent = "Erreur de lecture";
