@@ -124,6 +124,181 @@
       return str.replace(/^["'\s]+|["'\s]+$/g, "");
     }
 
+    // Fonction pour normaliser et comparer les chaînes (pour le matching)
+    function normalizeForMatch(str) {
+      if (!str) return "";
+      return str.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    // Vérifie si un résultat correspond à notre recherche
+    function matchesResult(result, artist, track) {
+      if (!result) return false;
+      const resultArtist = normalizeForMatch(result.artistName || result.artist || "");
+      const resultTrack = normalizeForMatch(result.trackName || result.track || "");
+      const searchArtist = normalizeForMatch(artist || "");
+      const searchTrack = normalizeForMatch(track || "");
+      
+      // Vérifie que l'artiste correspond (au moins partiellement)
+      const artistMatch = !searchArtist || resultArtist.includes(searchArtist) || searchArtist.includes(resultArtist);
+      // Vérifie que le titre correspond (au moins partiellement)
+      const trackMatch = !searchTrack || resultTrack.includes(searchTrack) || searchTrack.includes(resultTrack);
+      
+      return artistMatch && trackMatch;
+    }
+
+    // Recherche sur iTunes avec meilleure précision
+    async function searchITunes(artist, track) {
+      try {
+        // Tentative 1 : recherche précise avec artiste et titre
+        let query = "";
+        if (artist && track) {
+          query = `${artist} ${track}`;
+        } else if (artist) {
+          query = artist;
+        } else if (track) {
+          query = track;
+        } else {
+          return null;
+        }
+
+        const url = `https://itunes.apple.com/search?entity=song&limit=10&term=${encodeURIComponent(query)}`;
+        const r = await fetch(url, { cache: "no-store" });
+        const data = await r.json();
+        
+        if (data.results && data.results.length > 0) {
+          // Cherche un résultat qui correspond vraiment
+          for (const result of data.results) {
+            if (matchesResult(result, artist, track) && result.artworkUrl100) {
+              return result.artworkUrl100.replace("100x100", "600x600");
+            }
+          }
+          // Si aucun match exact, prend le premier résultat
+          if (data.results[0].artworkUrl100) {
+            return data.results[0].artworkUrl100.replace("100x100", "600x600");
+          }
+        }
+      } catch (err) {
+        console.warn("iTunes search error:", err);
+      }
+      return null;
+    }
+
+    // Recherche sur Last.fm (fallback)
+    async function searchLastFM(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        // Note: Last.fm nécessite une clé API valide. Si cette recherche échoue,
+        // le système utilisera les autres services. Obtenez une clé gratuite sur:
+        // https://www.last.fm/api/account/create
+        const apiKey = "c8d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5"; // Remplacez par votre clé API Last.fm
+        const url = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}&format=json`;
+        const r = await fetch(url, { cache: "no-store" });
+        if (!r.ok) return null;
+        const data = await r.json();
+        
+        if (data.track && data.track.album && data.track.album.image) {
+          // Last.fm fournit plusieurs tailles, on prend la grande (extralarge ou large)
+          const images = data.track.album.image;
+          for (let i = images.length - 1; i >= 0; i--) {
+            if (images[i]["#text"]) {
+              return images[i]["#text"];
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Last.fm search error:", err);
+      }
+      return null;
+    }
+
+    // Recherche sur MusicBrainz + Cover Art Archive (gratuit, open source)
+    async function searchMusicBrainz(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        // Étape 1 : Rechercher l'enregistrement (recording) sur MusicBrainz
+        const searchUrl = `https://musicbrainz.org/ws/2/recording/?query=artist:"${encodeURIComponent(artist)}" AND recording:"${encodeURIComponent(track)}"&fmt=json&limit=1`;
+        const searchRes = await fetch(searchUrl, { 
+          cache: "no-store",
+          headers: {
+            'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (!searchRes.ok) return null;
+        const searchData = await searchRes.json();
+        
+        if (!searchData.recordings || searchData.recordings.length === 0) return null;
+        
+        // Étape 2 : Récupérer les releases (albums) de cet enregistrement
+        const recordingId = searchData.recordings[0].id;
+        const releaseUrl = `https://musicbrainz.org/ws/2/recording/${recordingId}?inc=releases&fmt=json`;
+        const releaseRes = await fetch(releaseUrl, {
+          cache: "no-store",
+          headers: {
+            'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (!releaseRes.ok) return null;
+        const releaseData = await releaseRes.json();
+        
+        if (!releaseData.releases || releaseData.releases.length === 0) return null;
+        
+        // Étape 3 : Récupérer la cover depuis Cover Art Archive
+        const releaseId = releaseData.releases[0].id;
+        const coverUrl = `https://coverartarchive.org/release/${releaseId}/front-500`;
+        
+        // Vérifier que l'image existe
+        const coverCheck = await fetch(coverUrl, { method: 'HEAD', cache: "no-store" });
+        if (coverCheck.ok) {
+          return coverUrl;
+        }
+      } catch (err) {
+        console.warn("MusicBrainz search error:", err);
+      }
+      return null;
+    }
+
+    // Recherche sur Deezer (API gratuite, pas besoin de clé pour la recherche)
+    async function searchDeezer(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        const query = `${artist} ${track}`;
+        const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=5`;
+        const r = await fetch(url, { cache: "no-store" });
+        
+        if (!r.ok) return null;
+        const data = await r.json();
+        
+        if (data.data && data.data.length > 0) {
+          // Cherche un résultat qui correspond
+          for (const result of data.data) {
+            if (matchesResult({ 
+              artist: result.artist?.name, 
+              track: result.title 
+            }, artist, track) && result.album?.cover_xl) {
+              return result.album.cover_xl; // XL = 1000x1000px
+            }
+          }
+          // Si aucun match exact, prend le premier résultat
+          if (data.data[0]?.album?.cover_xl) {
+            return data.data[0].album.cover_xl;
+          }
+        }
+      } catch (err) {
+        console.warn("Deezer search error:", err);
+      }
+      return null;
+    }
+
     async function ensureCover(explicitCover, track, artist) {
       const key = [explicitCover || "", track || "", artist || ""].join("|");
       if (key === lastCoverKey) return;
@@ -135,31 +310,35 @@
         return;
       }
 
-      const query = [artist, track].filter(Boolean).join(" ");
-      if (!query) {
+      if (!track && !artist) {
         coverEl.src = FALLBACK_IMG;
         return;
       }
 
-      try {
-        const url =
-          "https://itunes.apple.com/search?entity=song&limit=1&term=" +
-          encodeURIComponent(query);
-        const r = await fetch(url, { cache: "no-store" });
-        const data = await r.json();
-        const art =
-          data.results &&
-          data.results[0] &&
-          data.results[0].artworkUrl100;
-        if (art) {
-          coverEl.src = art.replace("100x100", "300x300");
-          return;
-        }
-      } catch (err) {
-        console.warn("Cover fetch error:", err);
+      // Recherche en cascade sur plusieurs services (du plus fiable au moins fiable)
+      // Tentative 1 : iTunes (meilleure qualité, 600x600px)
+      let coverUrl = await searchITunes(artist, track);
+      
+      // Tentative 2 : Deezer (très bonne qualité, 1000x1000px, API gratuite)
+      if (!coverUrl) {
+        coverUrl = await searchDeezer(artist, track);
+      }
+      
+      // Tentative 3 : MusicBrainz + Cover Art Archive (gratuit, open source, 500x500px)
+      if (!coverUrl) {
+        coverUrl = await searchMusicBrainz(artist, track);
+      }
+      
+      // Tentative 4 : Last.fm (si clé API configurée)
+      if (!coverUrl) {
+        coverUrl = await searchLastFM(artist, track);
       }
 
-      coverEl.src = FALLBACK_IMG;
+      if (coverUrl) {
+        coverEl.src = coverUrl;
+      } else {
+        coverEl.src = FALLBACK_IMG;
+      }
     }
 
     async function updatePreviousTrackDisplay() {
@@ -169,15 +348,13 @@
         let coverUrl = previousTrackData.cover || FALLBACK_IMG;
         
         if (!previousTrackData.cover && previousTrackData.artist && previousTrackData.track) {
-          try {
-            const query = [previousTrackData.artist, previousTrackData.track].filter(Boolean).join(" ");
-            const url = "https://itunes.apple.com/search?entity=song&limit=1&term=" + encodeURIComponent(query);
-            const r = await fetch(url, { cache: "no-store" });
-            const data = await r.json();
-            if (data.results && data.results[0] && data.results[0].artworkUrl100) {
-              coverUrl = data.results[0].artworkUrl100.replace("100x100", "300x300");
-            }
-          } catch (err) {
+          // Utilise la même logique en cascade que ensureCover
+          let foundCover = await searchITunes(previousTrackData.artist, previousTrackData.track);
+          if (!foundCover) foundCover = await searchDeezer(previousTrackData.artist, previousTrackData.track);
+          if (!foundCover) foundCover = await searchMusicBrainz(previousTrackData.artist, previousTrackData.track);
+          if (!foundCover) foundCover = await searchLastFM(previousTrackData.artist, previousTrackData.track);
+          if (foundCover) {
+            coverUrl = foundCover;
           }
         }
         
