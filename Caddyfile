@@ -1,0 +1,158 @@
+z-radio.viewdns.net {
+
+  # Headers de sécurité globaux
+  header {
+    X-Content-Type-Options "nosniff"
+    X-Frame-Options "SAMEORIGIN"
+    Referrer-Policy "strict-origin-when-cross-origin"
+  }
+
+  # ---- /status-json.xsl : proxy + en-têtes CORS sur la même route
+  @status path /status-json.xsl*
+  route @status {
+    reverse_proxy 127.0.0.1:8000 {
+      transport http {
+        dial_timeout 5s
+        response_header_timeout 10s
+      }
+    }
+
+    header {
+      -Access-Control-Allow-Origin
+      -Access-Control-Allow-Methods
+      -Access-Control-Allow-Headers
+      Access-Control-Allow-Origin  "*"
+      Access-Control-Allow-Methods "GET, OPTIONS"
+      Access-Control-Allow-Headers "*"
+      Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+      Vary "Origin"
+    }
+  }
+
+  # Préflight CORS propre
+  @preflight {
+    method OPTIONS
+    path /status-json.xsl*
+  }
+  respond @preflight 204
+
+  # ---- Routes pour les fichiers JSON de métadonnées
+  @json path /*.json
+  route @json {
+    reverse_proxy 127.0.0.1:8000 {
+      transport http {
+        dial_timeout 5s
+        response_header_timeout 10s
+      }
+    }
+    
+    header {
+      Access-Control-Allow-Origin "*"
+      Access-Control-Allow-Methods "GET, OPTIONS"
+      Access-Control-Allow-Headers "*"
+      Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
+    }
+  }
+
+  # Préflight CORS pour JSON
+  @preflight_json {
+    method OPTIONS
+    path /*.json
+  }
+  respond @preflight_json 204
+
+  # ---- Flux audio : configuration optimisée pour streaming
+  @stream path /stream
+  route @stream {
+    reverse_proxy 127.0.0.1:8000 {
+      # Pas de buffering pour les flux en temps réel
+      flush_interval -1
+      
+      # Configuration optimisée pour les flux audio
+      transport http {
+        versions 1.1
+        # Timeouts augmentés pour les streams longs
+        dial_timeout 10s
+        response_header_timeout 30s
+        read_timeout 2h
+        write_timeout 2h
+      }
+      
+      # Headers spécifiques pour le streaming
+      # X-Forwarded-For est automatiquement ajouté par Caddy, pas besoin de le spécifier
+      header_up X-Real-IP {remote_host}
+      
+      # Gestion des erreurs avec health checks
+      health_uri /status-json.xsl
+      health_interval 30s
+      health_timeout 5s
+      fail_duration 10s
+      max_fails 3
+      unhealthy_status 503
+    }
+    
+    # Headers spécifiques pour le streaming audio
+    header {
+      Access-Control-Allow-Origin "*"
+      Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
+      Access-Control-Allow-Headers "Range, Content-Type, Accept"
+      Access-Control-Expose-Headers "Content-Length, Content-Range"
+      Content-Type "audio/mpeg"
+      Accept-Ranges "bytes"
+      Connection "keep-alive"
+      # Pas de limite de taille pour les streams
+      -Content-Length
+      Cache-Control "no-cache, no-store, must-revalidate"
+    }
+  }
+
+  # Préflight CORS pour le flux
+  @preflight_stream {
+    method OPTIONS
+    path /stream
+  }
+  respond @preflight_stream 204
+
+  # ---- Cache pour les fichiers statiques
+  @static {
+    path /cover.*
+    path /intro.mp3
+    path /*.html
+    path /*.css
+    path /*.js
+    path /*.gif
+    path /*.png
+  }
+  header @static {
+    Cache-Control "public, max-age=3600"
+  }
+
+  # ---- Le reste du site (fichiers statiques et autres)
+  route {
+    # Encodage automatique pour les fichiers statiques uniquement
+    encode zstd gzip
+    
+    reverse_proxy 127.0.0.1:8000 {
+      transport http {
+        dial_timeout 5s
+        response_header_timeout 10s
+      }
+    }
+  }
+
+  # Logging: Caddy émet ces warnings au niveau ERROR et il n'y a pas de moyen
+  # natif de les filtrer. Ces messages sont NORMALUX pour les flux audio streaming
+  # (client qui ferme la connexion = comportement attendu).
+  # 
+  # Options:
+  # 1. Accepter les warnings (ils n'affectent pas le fonctionnement)
+  # 2. Filtrer avec un outil externe (grep -v "context canceled")
+  # 3. Désactiver complètement les logs (décommentez "discard" ci-dessous)
+  
+  # Option actuelle: Logs minimaux (ERROR uniquement, mais ces warnings passent quand même)
+  # Décommentez la ligne suivante pour désactiver TOUS les logs:
+  # log { output discard }
+  
+  # Note: Ces warnings sont normaux et peuvent être ignorés en toute sécurité
+
+}

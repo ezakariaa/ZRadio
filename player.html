@@ -1,0 +1,291 @@
+<!doctype html>
+<!--
+  Z-Radio — Player personnalisé (Style Z Radio)
+  - Logo SVG "Z Radio"
+  - Palette personnalisée
+  - Badge "ON AIR" animé
+  - Visualizer (WebAudio + fallback simple)
+  - Works with Icecast proxied stream at /stream and /status-json.xsl
+
+  Usage: save as player-zradio.html on your web server (same domain as Caddy proxy).
+  Edit STREAM_PATH if needed.
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Z Radio — Live — Player</title>
+<style>
+  :root{
+    --bg:#07060a;            /* très sombre */
+    --panel:#0f0d12;         /* panneau */
+    --accent1:#ff3b6b;       /* couleur chaude principale */
+    --accent2:#ffd166;       /* secondaire */
+    --muted:#9aa0a6;
+    --glass: rgba(255,255,255,0.03);
+    --radius:14px;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  }
+  *{ box-sizing:border-box }
+  body{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; background: radial-gradient(1200px 400px at 10% 10%, rgba(255,59,107,0.06), transparent 6%), linear-gradient(180deg,#040406 0%, #0b0a0d 100%); color:#fff; padding:24px; }
+
+  .wrap{ width:100%; max-width:980px; }
+  .player{ background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); border-radius:var(--radius); padding:18px; display:grid; grid-template-columns: 160px 1fr 220px; gap:18px; align-items:center; box-shadow: 0 10px 40px rgba(0,0,0,0.6); border:1px solid rgba(255,255,255,0.02); }
+
+  /* left: logo & cover */
+  .brand{ display:flex; flex-direction:column; gap:12px; align-items:center; }
+  .logo{ width:140px; height:70px; display:flex; align-items:center; justify-content:center; }
+  .cover{ width:140px; height:140px; border-radius:12px; overflow:hidden; background:linear-gradient(180deg,#191617,#0f0d12); display:flex; align-items:center; justify-content:center; position:relative; }
+  .cover img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .onair{ position:absolute; left:8px; top:8px; background: linear-gradient(90deg,var(--accent1), #ff6b88); color:white; padding:6px 10px; border-radius:999px; font-weight:700; font-size:0.82rem; display:flex; align-items:center; gap:8px; box-shadow:0 6px 18px rgba(255,59,107,0.08); }
+  .onair .dot{ width:10px; height:10px; border-radius:50%; background: #fff; box-shadow: 0 0 10px var(--accent1); animation: pulse 1.2s infinite; }
+  @keyframes pulse{ 0%{ transform:scale(1); opacity:1 } 50%{ transform:scale(1.35); opacity:0.55 } 100%{ transform:scale(1); opacity:1 } }
+
+  /* center: meta */
+  .meta{ display:flex; flex-direction:column; gap:8px; }
+  .title{ font-size:1.2rem; font-weight:700; letter-spacing:0.2px; }
+  .subtitle{ color:var(--muted); font-size:0.95rem; }
+  .meta-row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  .pill{ background:var(--glass); padding:6px 10px; border-radius:999px; font-size:0.85rem; color:var(--muted); }
+
+  /* right: controls + visualizer */
+  .controls{ display:flex; flex-direction:column; gap:12px; align-items:center; }
+  .actions{ display:flex; gap:10px; align-items:center; }
+  button.btn{ background:var(--accent1); border:none; color:#fff; padding:10px 14px; border-radius:10px; font-weight:700; cursor:pointer; box-shadow:0 8px 28px rgba(255,59,107,0.12); }
+  button.btn.secondary{ background:transparent; color:var(--accent1); border:1px solid rgba(255,59,107,0.12); box-shadow:none; }
+  .small{ font-size:0.85rem; color:var(--muted); }
+
+  .vol{ display:flex; gap:8px; align-items:center; }
+  input[type=range]{ width:120px; accent-color: var(--accent1); }
+
+  /* visualizer */
+  .vis-wrap{ width:100%; max-width:220px; height:64px; background: linear-gradient(180deg, rgba(255,255,255,0.01), transparent); border-radius:8px; display:flex; align-items:center; justify-content:center; padding:8px; }
+  .bars{ display:flex; gap:6px; align-items:flex-end; height:100%; width:100%; }
+  .bar{ width:10%; background: linear-gradient(180deg,var(--accent2), var(--accent1)); border-radius:4px 4px 2px 2px; height:8%; transform-origin: bottom; transition: height 120ms linear; }
+
+  /* footer small */
+  .meta-footer{ display:flex; gap:10px; align-items:center; color:var(--muted); font-size:0.85rem; }
+
+  @media (max-width:820px){
+    .player{ grid-template-columns:120px 1fr; grid-template-rows:auto auto; padding:12px; }
+    .controls{ grid-column:1/-1; flex-direction:row; justify-content:space-between; }
+    .vis-wrap{ max-width:none; width:100%; }
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Cover de la musique -->
+  <div class="cover-container w-full flex justify-center mt-6">
+    <img id="cover" src="" alt="Cover" class="rounded-2xl shadow-xl w-48 h-48 object-cover border border-white/20" />
+  </div>
+
+<div class="player" id="player">
+
+      <div class="brand">
+        <!-- SVG logo Z Radio -->
+        <div class="logo" aria-hidden="true">
+          <svg viewBox="0 0 320 140" width="140" height="70" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="g1" x1="0" x2="1">
+                <stop offset="0" stop-color="#ff3b6b"/>
+                <stop offset="1" stop-color="#ffd166"/>
+              </linearGradient>
+            </defs>
+            <rect width="100%" height="100%" rx="12" fill="rgba(255,255,255,0.02)" />
+            <text x="20" y="90" font-family="Montserrat, Arial" font-weight="800" font-size="78" fill="url(#g1)">Z</text>
+            <text x="92" y="92" font-family="Inter, Arial" font-weight="700" font-size="34" fill="#fff">Radio</text>
+          </svg>
+        </div>
+
+        <div class="cover">
+          <div class="onair"><span class="dot"></span><span>ON AIR</span></div>
+          <img id="coverImg" alt="Z Radio cover" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='400' height='400'><rect width='100%' height='100%' fill='%23121212'/><text x='50%' y='50%' fill='%23bbb' font-size='36' font-family='Helvetica,Arial' text-anchor='middle' dominant-baseline='middle'>Z Radio</text></svg>">
+        </div>
+      </div>
+
+      <div class="meta">
+        <div class="title" id="trackTitle">Z Radio — Live</div>
+        <div class="subtitle" id="trackArtist">Écoute en direct</div>
+
+        <div class="meta-row">
+          <div class="pill" id="listeners">🔊 0 auditeurs</div>
+          <div class="pill" id="bitrate">— kbps</div>
+          <div class="pill" id="mount">Flux: /stream</div>
+        </div>
+
+        <div class="meta-footer">
+          <div class="small" id="status">Statut : prêt</div>
+          <div class="small">•</div>
+          <div class="small">Auto update</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="actions">
+          <button id="playBtn" class="btn">Play</button>
+          <button id="stopBtn" class="btn secondary">Stop</button>
+        </div>
+
+        <div class="vol">
+          <label class="small">Volume</label>
+          <input id="vol" type="range" min="0" max="1" step="0.01" value="0.9">
+        </div>
+
+        <div class="vis-wrap" aria-hidden="true">
+          <div class="bars" id="bars">
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+            <div class="bar"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <audio id="audio" crossorigin="anonymous"></audio>
+
+<script>
+(() => {
+  const STREAM_PATH = 'https://z-radio.viewdns.net/stream';            // <-- change here if needed
+  const STATUS_JSON = 'https://z-radio.viewdns.net/status-json.xsl';
+  const POLL_MS = 5000;
+
+  const audio = document.getElementById('audio');
+  const playBtn = document.getElementById('playBtn');
+  const stopBtn = document.getElementById('stopBtn');
+  const vol = document.getElementById('vol');
+  const statusEl = document.getElementById('status');
+  const titleEl = document.getElementById('trackTitle');
+  const artistEl = document.getElementById('trackArtist');
+  const listenersEl = document.getElementById('listeners');
+  const bitrateEl = document.getElementById('bitrate');
+  const coverImg = document.getElementById('coverImg');
+  const mountEl = document.getElementById('mount');
+  const bars = Array.from(document.querySelectorAll('.bar'));
+
+  let pollTimer = null;
+  let isPlaying = false;
+
+  audio.preload = 'none';
+  audio.crossOrigin = 'anonymous';
+  audio.src = STREAM_PATH;
+
+  mountEl.textContent = `Flux: ${STREAM_PATH}`;
+
+  function setStatus(text){ statusEl.textContent = `Statut : ${text}`; }
+
+  function startAudio() {
+    audio.play().then(() => {
+      isPlaying = true;
+      playBtn.textContent = 'Pause';
+      setStatus('lecture');
+      // start polling
+      if(!pollTimer) pollTimer = setInterval(fetchStatus, POLL_MS);
+      fetchStatus();
+      // try to enable visualizer
+      tryInitVisualizer();
+    }).catch(err => {
+      console.warn('Impossible de démarrer la lecture :', err);
+      setStatus('Lecture bloquée (autoplay) — appuyez sur Play');
+    });
+  }
+
+  function pauseAudio(){ audio.pause(); isPlaying=false; playBtn.textContent='Play'; setStatus('en pause'); }
+  function stopAudio(){ audio.pause(); try{ audio.currentTime = 0 }catch(e){} isPlaying=false; playBtn.textContent='Play'; setStatus('arrêté'); if(pollTimer){ clearInterval(pollTimer); pollTimer=null } }
+
+  playBtn.addEventListener('click', () => {
+    if(!isPlaying){ startAudio(); } else { if(!audio.paused) { pauseAudio(); } else { startAudio(); } }
+  });
+  stopBtn.addEventListener('click', stopAudio);
+  vol.addEventListener('input', (e) => { audio.volume = Number(e.target.value); });
+
+  // status fetch
+  function extractSource(json, mount){ if(!json || !json.icestats) return null; let src=json.icestats.source; if(!src) return null; if(Array.isArray(src)){ return src.find(s=> (s.listenurl && s.listenurl.includes(mount)) || (s.listenurl && s.listenurl.includes(window.location.hostname))) || src[0]; } else { return src; } }
+  function parseTitle(source){ if(!source) return {artist:'Z Radio', title:'Live'}; const raw = source.title||source.server_name||''; if(source.artist||source.song) return {artist:source.artist||'', title:source.song||raw}; if(typeof raw==='string'){ const parts = raw.split(' - '); if(parts.length>=2) return {artist:parts[0].trim(), title:parts.slice(1).join(' - ').trim()}; return {artist:'Z Radio', title:raw||'Live'} } return {artist:'Z Radio', title:'Live'} }
+
+  async function fetchStatus(){
+    try{
+      const res = await fetch(STATUS_JSON, { cache:'no-store' });
+      if(!res.ok) throw new Error('status non OK ' + res.status);
+      const json = await res.json();
+      const source = extractSource(json, STREAM_PATH);
+      if(!source){ listenersEl.textContent='🔊 0 auditeurs'; bitrateEl.textContent='— kbps'; return; }
+      const {artist, title} = parseTitle(source);
+      titleEl.textContent = title || 'Live';
+      artistEl.textContent = artist || (source.server_name || '');
+      const listeners = source.listeners !== undefined ? source.listeners : (source.listener_count || 0);
+      const bitrate = source.bitrate || source.kbitrate || source.bitrate_in || source.bitrate_out || '—';
+      listenersEl.textContent = `🔊 ${listeners} auditeur(s)`;
+      bitrateEl.textContent = `${bitrate} kbps`;
+      if(source.image) { coverImg.src = source.image; }
+      setStatus('métadonnées à jour');
+    } catch(err){ console.warn('Erreur fetch status:',err); setStatus('Erreur fetch status'); }
+  }
+
+  fetchStatus();
+
+  // VISUALIZER: try WebAudio AnalyserNode -> update bars
+  let audioCtx=null, analyser=null, sourceNode=null, dataArray=null, rafId=null;
+  function tryInitVisualizer(){
+    if(audioCtx) return;
+    try{
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256; // small and responsive
+      const bufferLength = analyser.frequencyBinCount;
+      dataArray = new Uint8Array(bufferLength);
+      sourceNode = audioCtx.createMediaElementSource(audio);
+      sourceNode.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      renderVisualizer();
+    }catch(e){ console.warn('Visualizer init failed:', e); startFallbackVis(); }
+  }
+
+  function renderVisualizer(){
+    if(!analyser) return startFallbackVis();
+    analyser.getByteFrequencyData(dataArray);
+    // map frequency bins to 10 bars
+    const step = Math.floor(dataArray.length / bars.length);
+    for(let i=0;i<bars.length;i++){
+      const slice = dataArray.slice(i*step, (i+1)*step);
+      const avg = slice.reduce((s,v)=>s+v,0)/slice.length/255; // 0..1
+      const h = Math.max(6, Math.round(avg * 100));
+      bars[i].style.height = h + '%';
+    }
+    rafId = requestAnimationFrame(renderVisualizer);
+  }
+
+  // fallback: simple pulsing animation when analyser unavailable
+  let fallbackInterval=null;
+  function startFallbackVis(){
+    if(fallbackInterval) return;
+    fallbackInterval = setInterval(()=>{
+      bars.forEach((b,i)=>{ const rnd = 8 + Math.round(Math.random()*88); b.style.height = rnd + '%'; });
+    }, 140);
+  }
+  function stopFallbackVis(){ if(fallbackInterval){ clearInterval(fallbackInterval); fallbackInterval=null; } }
+
+  // stop visualizer on pause/stop
+  audio.addEventListener('pause', ()=>{ if(rafId) cancelAnimationFrame(rafId); stopFallbackVis(); });
+  audio.addEventListener('play', ()=>{ tryInitVisualizer(); });
+
+  // visibility change
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null } if(rafId) cancelAnimationFrame(rafId); stopFallbackVis(); } else { if(isPlaying && !pollTimer) pollTimer = setInterval(fetchStatus, POLL_MS); fetchStatus(); } });
+
+  // accessibility: space toggles
+  document.addEventListener('keydown', (e)=>{ if(e.code==='Space' && document.activeElement===document.body){ e.preventDefault(); playBtn.click(); } });
+
+})();
+</script>
+</body>
+</html>

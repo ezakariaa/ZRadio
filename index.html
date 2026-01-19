@@ -72,12 +72,6 @@
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
-  <!-- Intro audio -->
-  <audio id="introPlayer" preload="auto">
-    <source src="intro.mp3" type="audio/mpeg">
-    Votre navigateur ne supporte pas l'audio HTML5.
-  </audio>
-
   <div id="title" class="meta song-title">Chargement…</div>
   <div id="artist" class="artist-name"></div>
   <br>
@@ -109,7 +103,6 @@
     const FALLBACK_IMG = "cover.gif";
 
     const player   = document.getElementById("player");
-    const introPlayer = document.getElementById("introPlayer");
     const coverEl  = document.getElementById("cover");
     const titleEl  = document.getElementById("title");
     const artistEl = document.getElementById("artist");
@@ -120,7 +113,7 @@
     let lastCoverKey = "";
     let lastSnipUpdate = 0;
     let lastTrackKey = "";
-    let previousTrackData = null; // Stocker la dernière chanson en mémoire
+    let previousTrackData = null;
     let userPaused = false;
     let isLoading = false;
     let statusFailCount = 0;
@@ -173,10 +166,8 @@
       if (!previousTrackEl) return;
       
       if (previousTrackData && previousTrackData.track) {
-        // Récupérer la cover de la chanson précédente
         let coverUrl = previousTrackData.cover || FALLBACK_IMG;
         
-        // Si pas de cover explicite, chercher via iTunes
         if (!previousTrackData.cover && previousTrackData.artist && previousTrackData.track) {
           try {
             const query = [previousTrackData.artist, previousTrackData.track].filter(Boolean).join(" ");
@@ -187,7 +178,6 @@
               coverUrl = data.results[0].artworkUrl100.replace("100x100", "300x300");
             }
           } catch (err) {
-            // Garder FALLBACK_IMG en cas d'erreur
           }
         }
         
@@ -230,23 +220,17 @@
           if (!r.ok) continue;
           const data = await r.json();
 
-          // Différents formats possibles de l'historique Snip
           let history = null;
           
           if (Array.isArray(data)) {
-            // Format: [{track, artist, ...}, ...]
             history = data;
           } else if (data.history && Array.isArray(data.history)) {
-            // Format: {history: [...]}
             history = data.history;
           } else if (data.previous) {
-            // Format: {previous: {track, artist}}
             history = [data.previous];
           } else if (data.last && data.last.track) {
-            // Format: {last: {track, artist}}
             history = [data.last];
           } else if (data.previousTrack || data.previousTitle) {
-            // Format: {previousTrack: "...", previousArtist: "...", previousCover: "..."}
             const prevTrack = normalizeText(data.previousTrack || data.previousTitle || "");
             const prevArtist = normalizeText(data.previousArtist || data.previousArtistName || "");
             if (prevTrack || prevArtist) {
@@ -259,16 +243,13 @@
               return;
             }
           } else if (data.tracks && Array.isArray(data.tracks)) {
-            // Format: {tracks: [...]}
             history = data.tracks;
           }
 
           if (history && history.length > 0) {
-            // Prendre l'avant-dernière entrée (la dernière étant la chanson actuelle)
             const currentTrack = titleEl.textContent;
             const currentArtist = artistEl.textContent;
             
-            // Trouver la dernière entrée qui n'est pas la chanson actuelle
             let previous = null;
             for (let i = history.length - 1; i >= 0; i--) {
               const entry = history[i];
@@ -285,7 +266,6 @@
                   break;
                 }
               } else if (entryTrack && !currentTrack) {
-                // Si on n'a pas de chanson actuelle, prendre la dernière disponible
                 previous = { 
                   track: entryTrack, 
                   artist: entryArtist || "",
@@ -302,12 +282,10 @@
             return;
           }
         } catch (e) {
-          // Continuer avec le fichier suivant
           console.debug("Erreur lecture historique:", file, e);
         }
       }
       
-      // Si aucun historique trouvé mais qu'on a une valeur en mémoire, l'afficher
       updatePreviousTrackDisplay();
     }
 
@@ -322,26 +300,23 @@
         const artist = meta.artist ? normalizeText(meta.artist) : "";
         const currentKey = track + "|" + artist;
 
-        // Si le morceau a changé, sauvegarder l'ancien comme précédent
         if (currentKey !== lastTrackKey && lastTrackKey) {
           const oldTrack = titleEl.textContent;
           const oldArtist = artistEl.textContent;
-          const oldCover = coverEl.src; // Sauvegarder la cover actuelle
+          const oldCover = coverEl.src;
           if (oldTrack && oldTrack !== "Chargement…") {
             previousTrackData = { 
               track: oldTrack, 
               artist: oldArtist,
-              cover: oldCover !== FALLBACK_IMG ? oldCover : null // Ne pas stocker le fallback
+              cover: oldCover !== FALLBACK_IMG ? oldCover : null
             };
             updatePreviousTrackDisplay();
           }
         }
 
-        // Si le morceau a changé, réinitialiser lastCoverKey pour forcer la mise à jour
         if (currentKey !== lastTrackKey) {
           lastCoverKey = "";
           lastTrackKey = currentKey;
-          // Rafraîchir l'historique quand le morceau change
           refreshPreviousTrack();
         }
 
@@ -359,7 +334,6 @@
       refreshPreviousTrack();
       setInterval(refreshSnip, 2000);
       setInterval(refreshPreviousTrack, 3000);
-      // Afficher immédiatement si on a déjà des données en mémoire
       updatePreviousTrackDisplay();
     }
 
@@ -380,7 +354,6 @@
       let lastError = null;
       for (const baseUrl of STATUS_URLS) {
         try {
-          // Cache-busting pour éviter les réponses en cache
           const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
           const r = await fetch(url, { cache:"no-store", mode:"cors" });
           if (!r.ok) throw new Error("HTTP " + r.status);
@@ -400,7 +373,6 @@
           const hasTitle = titleEl.textContent && titleEl.textContent !== "Chargement…";
           const hasArtist = artistEl.textContent && artistEl.textContent.length > 0;
 
-          // Extraire les métadonnées Icecast
           const iceTitle = src.title || src.server_name || "";
           if (iceTitle) {
             const [artistPart, ...titleParts] = iceTitle.split(" - ");
@@ -408,18 +380,16 @@
             const iceTrack = titleParts.length ? normalizeText(titleParts.join(" - ")) : normalizeText(iceTitle);
             const iceKey = iceTrack + "|" + iceArtist;
 
-            // Toujours mettre à jour si Snip n'est pas frais OU si les données manquent OU si le morceau a changé
             if (!snipFresh || !hasTitle || !hasArtist || iceKey !== lastTrackKey) {
-              // Si le morceau a changé, sauvegarder l'ancien comme précédent
               if (iceKey !== lastTrackKey && lastTrackKey) {
                 const oldTrack = titleEl.textContent;
                 const oldArtist = artistEl.textContent;
-                const oldCover = coverEl.src; // Sauvegarder la cover actuelle
+                const oldCover = coverEl.src;
                 if (oldTrack && oldTrack !== "Chargement…") {
                   previousTrackData = { 
                     track: oldTrack, 
                     artist: oldArtist,
-                    cover: oldCover !== FALLBACK_IMG ? oldCover : null // Ne pas stocker le fallback
+                    cover: oldCover !== FALLBACK_IMG ? oldCover : null
                   };
                   updatePreviousTrackDisplay();
                 }
@@ -432,7 +402,6 @@
                 titleEl.textContent = iceTrack;
               }
               
-              // Si le morceau a changé, réinitialiser lastCoverKey et rafraîchir l'historique
               if (iceKey !== lastTrackKey) {
                 lastCoverKey = "";
                 lastTrackKey = iceKey;
@@ -452,7 +421,6 @@
 
       console.error(lastError);
       statusFailCount++;
-      // Ne pas afficher si l'audio joue correctement
       const playerLooksOk = !player.paused && player.readyState >= 2;
       if (!playerLooksOk && statusFailCount >= STATUS_FAIL_THRESHOLD) {
         statusEl.textContent = "Flux indisponible…";
@@ -463,24 +431,11 @@
     refreshIcecast();
     setInterval(refreshIcecast, 15000);
 
-    // ---- CLIC UTILISATEUR → Intro puis flux principal
-    player.addEventListener("play", async () => {
+    // ---- Gestion du bouton Play/Pause (sans intro, sans reconnexion automatique)
+    player.addEventListener("play", () => {
       userPaused = false;
-
-      if (player.readyState === 0 || player.networkState === 0) {
-        // Jouer l’intro
-        introPlayer.currentTime = 0;
-        await introPlayer.play().catch(() => {});
-
-        // Dès que l’intro se termine, lancer le flux principal
-        introPlayer.onended = () => {
-          player.load();
-          player.play().catch(() => {});
-        };
-
-      } else {
-        if (player.paused) player.play().catch(() => {});
-      }
+      const audioBars = document.getElementById("audioBars");
+      if (audioBars) audioBars.classList.remove("hidden");
     });
 
     player.addEventListener("pause", () => {
@@ -493,18 +448,41 @@
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
     });
-
-    // Vérifier l'état initial du lecteur
-    if (!player.paused && player.readyState >= 2) {
-      const audioBars = document.getElementById("audioBars");
-      if (audioBars) audioBars.classList.remove("hidden");
-    }
-
+    
+    // Gestion des erreurs du lecteur
     player.addEventListener("error", (e) => {
-      statusEl.textContent = "Erreur de lecture";
-      console.error("Erreur lecteur:", player.error);
-      // En cas d'erreur, jouer l'intro si possible
-      if (introPlayer.paused) introPlayer.play().catch(() => {});
+      const error = player.error;
+      let errorMsg = "Erreur de lecture";
+      if (error) {
+        switch (error.code) {
+          case error.MEDIA_ERR_ABORTED:
+            errorMsg = "Lecture interrompue";
+            break;
+          case error.MEDIA_ERR_NETWORK:
+            errorMsg = "Erreur réseau - Impossible de se connecter au flux";
+            break;
+          case error.MEDIA_ERR_DECODE:
+            errorMsg = "Erreur de décodage";
+            break;
+          case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
+            errorMsg = "Format non supporté";
+            break;
+          default:
+            errorMsg = `Erreur inconnue (code: ${error.code})`;
+        }
+        
+        console.error("Erreur lecteur audio:", {
+          code: error.code,
+          message: errorMsg,
+          networkState: player.networkState,
+          readyState: player.readyState,
+          src: player.src
+        });
+      } else {
+        console.error("Erreur lecteur (sans détails):", e);
+      }
+      
+      statusEl.textContent = errorMsg;
     });
   </script>
 </body>
