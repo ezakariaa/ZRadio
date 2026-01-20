@@ -12,8 +12,8 @@ z-radio.viewdns.net {
   route @status {
     reverse_proxy 127.0.0.1:8000 {
       transport http {
-        dial_timeout 5s
-        response_header_timeout 10s
+        dial_timeout 2s
+        response_header_timeout 3s
       }
     }
 
@@ -41,8 +41,8 @@ z-radio.viewdns.net {
   route @json {
     reverse_proxy 127.0.0.1:8000 {
       transport http {
-        dial_timeout 5s
-        response_header_timeout 10s
+        dial_timeout 2s
+        response_header_timeout 3s
       }
     }
     
@@ -71,9 +71,9 @@ z-radio.viewdns.net {
       # Configuration optimisée pour les flux audio
       transport http {
         versions 1.1
-        # Timeouts augmentés pour les streams longs
-        dial_timeout 10s
-        response_header_timeout 30s
+        # Timeouts pour les streams longs
+        dial_timeout 3s
+        response_header_timeout 5s
         read_timeout 2h
         write_timeout 2h
       }
@@ -82,13 +82,13 @@ z-radio.viewdns.net {
       # X-Forwarded-For est automatiquement ajouté par Caddy, pas besoin de le spécifier
       header_up X-Real-IP {remote_host}
       
-      # Gestion des erreurs avec health checks
-      health_uri /status-json.xsl
-      health_interval 30s
-      health_timeout 5s
-      fail_duration 10s
-      max_fails 3
-      unhealthy_status 503
+      # Gestion des erreurs avec health checks (désactivés pour éviter les délais)
+      # health_uri /status-json.xsl
+      # health_interval 30s
+      # health_timeout 5s
+      # fail_duration 10s
+      # max_fails 3
+      # unhealthy_status 503
     }
     
     # Headers spécifiques pour le streaming audio
@@ -134,8 +134,8 @@ z-radio.viewdns.net {
     
     reverse_proxy 127.0.0.1:8000 {
       transport http {
-        dial_timeout 5s
-        response_header_timeout 10s
+        dial_timeout 2s
+        response_header_timeout 3s
       }
     }
   }

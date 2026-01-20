@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Z Radio – Live Stream</title>
+  <link rel="preload" href="cover.gif" as="image">
   <style>
     :root { --accent:#1db954; --bg1:#0e0e0e; --bg2:#232526; }
     *{ box-sizing:border-box; margin:0; padding:0; }
@@ -72,8 +73,8 @@
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
-  <div id="title" class="meta song-title">Chargement…</div>
-  <div id="artist" class="artist-name"></div>
+  <div id="title" class="meta song-title">Z Radio</div>
+  <div id="artist" class="artist-name">Live Stream</div>
   <!-- Protection : ne jamais réinitialiser à "Chargement…" une fois qu'on a un titre -->
   <br>
   <div id="listeners">
@@ -116,19 +117,43 @@
     let lastTrackKey = "";
     let previousTrackData = null;
     let userPaused = false;
+    let wasPaused = false; // Flag pour détecter si l'utilisateur a mis en pause
     let isLoading = false;
     let statusFailCount = 0;
     const STATUS_FAIL_THRESHOLD = 3;
     let reconnectAttempts = 0;
     let reconnectTimer = null;
     const MAX_RECONNECT_ATTEMPTS = 5;
-    const RECONNECT_DELAY = 3000; // 3 secondes
+    const RECONNECT_DELAY = 2000; // 2 secondes (plus rapide)
     let lastKnownTitle = "";
     let lastKnownArtist = "";
+    const FETCH_TIMEOUT = 3000; // 3 secondes max (compromis vitesse/fiabilité)
+    let isInitialLoad = true;
 
     function normalizeText(str) {
       if (!str) return "";
       return str.replace(/^["'\s]+|["'\s]+$/g, "");
+    }
+
+    // Fonction fetch avec timeout pour éviter les blocages
+    async function fetchWithTimeout(url, options = {}, timeout = FETCH_TIMEOUT) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        return response;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error('Timeout: requête trop longue');
+        }
+        throw error;
+      }
     }
 
     // Fonction pour mettre à jour le titre en préservant les valeurs existantes
@@ -206,7 +231,7 @@
         }
 
         const url = `https://itunes.apple.com/search?entity=song&limit=10&term=${encodeURIComponent(query)}`;
-        const r = await fetch(url, { cache: "no-store" });
+        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000); // 2s max pour iTunes
         const data = await r.json();
         
         if (data.results && data.results.length > 0) {
@@ -237,7 +262,7 @@
         // https://www.last.fm/api/account/create
         const apiKey = "c8d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5"; // Remplacez par votre clé API Last.fm
         const url = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}&format=json`;
-        const r = await fetch(url, { cache: "no-store" });
+        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000); // 2s max pour Last.fm
         if (!r.ok) return null;
         const data = await r.json();
         
@@ -263,13 +288,13 @@
         
         // Étape 1 : Rechercher l'enregistrement (recording) sur MusicBrainz
         const searchUrl = `https://musicbrainz.org/ws/2/recording/?query=artist:"${encodeURIComponent(artist)}" AND recording:"${encodeURIComponent(track)}"&fmt=json&limit=1`;
-        const searchRes = await fetch(searchUrl, { 
+        const searchRes = await fetchWithTimeout(searchUrl, { 
           cache: "no-store",
           headers: {
             'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
             'Accept': 'application/json'
           }
-        });
+        }, 2000); // 2s max pour MusicBrainz
         
         if (!searchRes.ok) return null;
         const searchData = await searchRes.json();
@@ -279,13 +304,13 @@
         // Étape 2 : Récupérer les releases (albums) de cet enregistrement
         const recordingId = searchData.recordings[0].id;
         const releaseUrl = `https://musicbrainz.org/ws/2/recording/${recordingId}?inc=releases&fmt=json`;
-        const releaseRes = await fetch(releaseUrl, {
+        const releaseRes = await fetchWithTimeout(releaseUrl, {
           cache: "no-store",
           headers: {
             'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
             'Accept': 'application/json'
           }
-        });
+        }, 2000);
         
         if (!releaseRes.ok) return null;
         const releaseData = await releaseRes.json();
@@ -297,7 +322,7 @@
         const coverUrl = `https://coverartarchive.org/release/${releaseId}/front-500`;
         
         // Vérifier que l'image existe
-        const coverCheck = await fetch(coverUrl, { method: 'HEAD', cache: "no-store" });
+        const coverCheck = await fetchWithTimeout(coverUrl, { method: 'HEAD', cache: "no-store" }, 2000);
         if (coverCheck.ok) {
           return coverUrl;
         }
@@ -314,7 +339,7 @@
         
         const query = `${artist} ${track}`;
         const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=5`;
-        const r = await fetch(url, { cache: "no-store" });
+        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000); // 2s max pour Deezer
         
         if (!r.ok) return null;
         const data = await r.json();
@@ -434,7 +459,8 @@
 
       for (const file of historyFiles) {
         try {
-          const r = await fetch(file, { cache: "no-store" });
+          // Utiliser fetchWithTimeout pour éviter les blocages
+          const r = await fetchWithTimeout(file, { cache: "no-store" }, FETCH_TIMEOUT);
           if (!r.ok) continue;
           const data = await r.json();
 
@@ -500,7 +526,10 @@
             return;
           }
         } catch (e) {
-          console.debug("Erreur lecture historique:", file, e);
+          // Erreur silencieuse pour les fichiers qui n'existent pas (normal)
+          if (e.message && !e.message.includes("Timeout") && !e.message.includes("Failed to fetch")) {
+            // Erreur silencieuse
+          }
         }
       }
       
@@ -510,15 +539,19 @@
     async function refreshSnip() {
       if (window.location.protocol === "file:") return;
       try {
-        const r = await fetch("Snip_Metadata.json", { cache: "no-store" });
-        if (!r.ok) return;
+        // Utiliser fetchWithTimeout pour éviter les blocages
+        const r = await fetchWithTimeout("Snip_Metadata.json", { cache: "no-store" }, FETCH_TIMEOUT);
+        if (!r.ok) return; // Échec silencieux
         const meta = await r.json();
 
         const track  = meta.track  ? normalizeText(meta.track)  : "";
         const artist = meta.artist ? normalizeText(meta.artist) : "";
         const currentKey = track + "|" + artist;
+        
+        // Au chargement initial, toujours mettre à jour même si on a déjà un titre
+        const shouldUpdate = isInitialLoad || currentKey !== lastTrackKey;
 
-        if (currentKey !== lastTrackKey && lastTrackKey) {
+        if (shouldUpdate && currentKey !== lastTrackKey && lastTrackKey) {
           const oldTrack = titleEl.textContent;
           const oldArtist = artistEl.textContent;
           const oldCover = coverEl.src;
@@ -532,28 +565,55 @@
           }
         }
 
-        if (currentKey !== lastTrackKey) {
+        if (shouldUpdate && currentKey !== lastTrackKey) {
           lastCoverKey = "";
           lastTrackKey = currentKey;
           refreshPreviousTrack();
         }
 
-        // Ne jamais réinitialiser à "Chargement…" si on a déjà un titre
-        safeUpdateTitle(track);
-        safeUpdateArtist(artist);
+        // Toujours mettre à jour au chargement initial, sinon seulement si on a des données
+        if (shouldUpdate || track || artist) {
+          safeUpdateTitle(track);
+          safeUpdateArtist(artist);
+        }
 
-        await ensureCover(meta.cover, track, artist);
+        // Charger la pochette de manière non-bloquante
+        ensureCover(meta.cover, track, artist).catch(() => {});
         lastSnipUpdate = Date.now();
 
-      } catch (e) { }
+      } catch (e) {
+        // Erreur silencieuse, ne pas ralentir
+      }
     }
 
+    // Chargement ULTRA-RAPIDE : afficher la page immédiatement, métadonnées après
     if (window.location.protocol !== "file:") {
-      refreshSnip();
-      refreshPreviousTrack();
+      // Afficher un titre par défaut immédiatement (déjà fait dans le HTML)
+      safeUpdateTitle("Z Radio");
+      safeUpdateArtist("Live Stream");
+      isInitialLoad = false;
+      
+      // Charger les métadonnées EN ARRIÈRE-PLAN après que la page soit affichée
+      // Utiliser requestIdleCallback pour ne pas bloquer le rendu
+      const loadMetadataAsync = () => {
+        // Charger en parallèle sans bloquer
+        Promise.all([
+          refreshIcecast().catch(() => {}),
+          refreshSnip().catch(() => {})
+        ]).catch(() => {});
+      };
+      
+      // Attendre que le navigateur soit prêt, mais ne pas bloquer
+      if ('requestIdleCallback' in window) {
+        requestIdleCallback(loadMetadataAsync, { timeout: 200 });
+      } else {
+        // Fallback : démarrer après 200ms (assez pour que la page s'affiche)
+        setTimeout(loadMetadataAsync, 200);
+      }
+
+      // Intervalles pour les mises à jour périodiques
       setInterval(refreshSnip, 2000);
       setInterval(refreshPreviousTrack, 3000);
-      updatePreviousTrackDisplay();
     }
 
     function pickSource(icestats) {
@@ -574,7 +634,8 @@
       for (const baseUrl of STATUS_URLS) {
         try {
           const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
-          const r = await fetch(url, { cache:"no-store", mode:"cors" });
+          // Utiliser fetchWithTimeout pour éviter les blocages
+          const r = await fetchWithTimeout(url, { cache:"no-store", mode:"cors" }, FETCH_TIMEOUT);
           if (!r.ok) throw new Error("HTTP " + r.status);
           const data = await r.json();
 
@@ -591,6 +652,9 @@
           const snipFresh = Date.now() - lastSnipUpdate < 7000;
           const hasTitle = titleEl.textContent && titleEl.textContent !== "Chargement…";
           const hasArtist = artistEl.textContent && artistEl.textContent.length > 0;
+          
+          // Au chargement initial, forcer la mise à jour même si on a déjà un titre
+          const isInitialLoadState = isInitialLoad || (!hasTitle && !hasArtist);
 
           const iceTitle = src.title || src.server_name || "";
           if (iceTitle) {
@@ -599,7 +663,8 @@
             const iceTrack = titleParts.length ? normalizeText(titleParts.join(" - ")) : normalizeText(iceTitle);
             const iceKey = iceTrack + "|" + iceArtist;
 
-            if (!snipFresh || !hasTitle || !hasArtist || iceKey !== lastTrackKey) {
+            // Toujours mettre à jour si c'est le chargement initial ou si on n'a pas de métadonnées
+            if (isInitialLoadState || !snipFresh || !hasTitle || !hasArtist || iceKey !== lastTrackKey) {
               if (iceKey !== lastTrackKey && lastTrackKey) {
                 const oldTrack = titleEl.textContent;
                 const oldArtist = artistEl.textContent;
@@ -614,12 +679,19 @@
                 }
               }
 
-              // Ne jamais réinitialiser à "Chargement…" si on a déjà un titre
-              if ((!snipFresh || !hasArtist) && iceArtist) {
-                safeUpdateArtist(iceArtist);
-              }
-              if ((!snipFresh || !hasTitle) && iceTrack) {
-                safeUpdateTitle(iceTrack);
+              // Au chargement initial, toujours mettre à jour. Sinon, seulement si nécessaire
+              if (isInitialLoadState) {
+                // Chargement initial : forcer la mise à jour
+                if (iceArtist) safeUpdateArtist(iceArtist);
+                if (iceTrack) safeUpdateTitle(iceTrack);
+              } else {
+                // Mise à jour normale : seulement si nécessaire
+                if ((!snipFresh || !hasArtist) && iceArtist) {
+                  safeUpdateArtist(iceArtist);
+                }
+                if ((!snipFresh || !hasTitle) && iceTrack) {
+                  safeUpdateTitle(iceTrack);
+                }
               }
               
               if (iceKey !== lastTrackKey) {
@@ -628,7 +700,8 @@
                 refreshPreviousTrack();
               }
               
-              await ensureCover(null, titleEl.textContent, artistEl.textContent);
+              // Charger la pochette de manière non-bloquante
+              ensureCover(null, titleEl.textContent, artistEl.textContent).catch(() => {});
               if (!snipFresh) lastSnipUpdate = 0;
             }
           }
@@ -639,7 +712,9 @@
         }
       }
 
-      console.error(lastError);
+      if (lastError) {
+        console.error("Erreur refreshIcecast:", lastError);
+      }
       statusFailCount++;
       const playerLooksOk = !player.paused && player.readyState >= 2;
       if (!playerLooksOk && statusFailCount >= STATUS_FAIL_THRESHOLD) {
@@ -650,12 +725,16 @@
         if (!lastKnownArtist && artistEl.textContent) {
           lastKnownArtist = artistEl.textContent;
         }
-        statusEl.textContent = "Connexion au flux…";
+        // Ne pas afficher de message si le lecteur fonctionne
+        if (player.readyState < 2) {
+          statusEl.textContent = "Connexion au serveur…";
+        }
         coverEl.src = FALLBACK_IMG;
       }
     }
 
-    refreshIcecast();
+    // refreshIcecast() est maintenant appelé dans loadMetadata() pour éviter le double appel
+    // Mais on garde l'intervalle pour les mises à jour périodiques
     setInterval(refreshIcecast, 15000);
 
     // Fonction de reconnexion automatique
@@ -676,7 +755,7 @@
         artistEl.textContent = lastKnownArtist;
       }
 
-      // Réinitialiser le lecteur et réessayer
+      // Réinitialiser le lecteur et réessayer (version simplifiée)
       try {
         player.load();
         player.play().catch(err => {
@@ -691,19 +770,65 @@
 
     // ---- Gestion du bouton Play/Pause avec reconnexion automatique
     player.addEventListener("play", () => {
+      // Si l'utilisateur a mis en pause puis relance, actualiser le flux
+      const shouldRefresh = wasPaused && userPaused;
+      
+      if (shouldRefresh) {
+        console.debug("Reprise après pause : actualisation du flux");
+        statusEl.textContent = "Actualisation du flux…";
+        
+        // Recharger le flux pour obtenir la version la plus récente
+        try {
+          // Réinitialiser la source pour forcer une nouvelle connexion
+          const currentSrc = player.src;
+          player.src = "";
+          player.load();
+          player.src = currentSrc;
+          player.load();
+          
+          // Attendre que le flux soit prêt avant de jouer
+          const waitAndPlay = () => {
+            if (player.readyState >= 2) {
+              // Le flux est prêt, démarrer la lecture
+              player.play().catch(err => {
+                console.warn("Erreur lors de la reprise:", err);
+                statusEl.textContent = "";
+              });
+            } else {
+              // Attendre un peu plus
+              setTimeout(waitAndPlay, 100);
+            }
+          };
+          
+          // Essayer de jouer immédiatement, sinon attendre
+          setTimeout(() => {
+            player.play().catch(() => {
+              setTimeout(waitAndPlay, 200);
+            });
+          }, 50);
+        } catch (e) {
+          console.error("Erreur lors de l'actualisation du flux:", e);
+          statusEl.textContent = "";
+        }
+      }
+      
       userPaused = false;
+      wasPaused = false; // Réinitialiser le flag
       reconnectAttempts = 0; // Réinitialiser le compteur en cas de succès
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
-      statusEl.textContent = ""; // Effacer le message de reconnexion
+      if (!shouldRefresh) {
+        statusEl.textContent = ""; // Effacer le message seulement si pas d'actualisation
+      }
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
     });
 
     player.addEventListener("pause", () => {
       userPaused = true;
+      wasPaused = true; // Marquer qu'on vient de mettre en pause
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.add("hidden");
     });
@@ -732,6 +857,13 @@
     player.addEventListener("waiting", () => {
       if (!userPaused) {
         statusEl.textContent = "Buffering…";
+      }
+    });
+
+    player.addEventListener("canplaythrough", () => {
+      // Le flux peut être lu sans interruption
+      if (statusEl.textContent === "Actualisation du flux…" || statusEl.textContent === "Buffering…") {
+        statusEl.textContent = "";
       }
     });
     
