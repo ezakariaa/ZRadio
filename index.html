@@ -74,6 +74,7 @@
 
   <div id="title" class="meta song-title">Chargement…</div>
   <div id="artist" class="artist-name"></div>
+  <!-- Protection : ne jamais réinitialiser à "Chargement…" une fois qu'on a un titre -->
   <br>
   <div id="listeners">
     Auditeurs : <span id="listenerCount">--</span>
@@ -118,10 +119,50 @@
     let isLoading = false;
     let statusFailCount = 0;
     const STATUS_FAIL_THRESHOLD = 3;
+    let reconnectAttempts = 0;
+    let reconnectTimer = null;
+    const MAX_RECONNECT_ATTEMPTS = 5;
+    const RECONNECT_DELAY = 3000; // 3 secondes
+    let lastKnownTitle = "";
+    let lastKnownArtist = "";
 
     function normalizeText(str) {
       if (!str) return "";
       return str.replace(/^["'\s]+|["'\s]+$/g, "");
+    }
+
+    // Fonction pour mettre à jour le titre en préservant les valeurs existantes
+    function safeUpdateTitle(newTitle) {
+      if (newTitle && newTitle.trim()) {
+        titleEl.textContent = newTitle;
+        lastKnownTitle = newTitle;
+        return true;
+      }
+      // Si pas de nouveau titre mais qu'on en a un connu, le garder
+      if (!newTitle && lastKnownTitle) {
+        titleEl.textContent = lastKnownTitle;
+        return false;
+      }
+      // Ne jamais réinitialiser à "Chargement…" si on a déjà un titre
+      if (!newTitle && titleEl.textContent && titleEl.textContent !== "Chargement…") {
+        return false; // Garder le titre actuel
+      }
+      return false;
+    }
+
+    // Fonction pour mettre à jour l'artiste en préservant les valeurs existantes
+    function safeUpdateArtist(newArtist) {
+      if (newArtist && newArtist.trim()) {
+        artistEl.textContent = newArtist;
+        lastKnownArtist = newArtist;
+        return true;
+      }
+      // Si pas de nouvel artiste mais qu'on en a un connu, le garder
+      if (!newArtist && lastKnownArtist) {
+        artistEl.textContent = lastKnownArtist;
+        return false;
+      }
+      return false;
     }
 
     // Fonction pour normaliser et comparer les chaînes (pour le matching)
@@ -497,8 +538,9 @@
           refreshPreviousTrack();
         }
 
-        if (track)  titleEl.textContent  = track;
-        if (artist) artistEl.textContent = artist;
+        // Ne jamais réinitialiser à "Chargement…" si on a déjà un titre
+        safeUpdateTitle(track);
+        safeUpdateArtist(artist);
 
         await ensureCover(meta.cover, track, artist);
         lastSnipUpdate = Date.now();
@@ -572,11 +614,12 @@
                 }
               }
 
+              // Ne jamais réinitialiser à "Chargement…" si on a déjà un titre
               if ((!snipFresh || !hasArtist) && iceArtist) {
-                artistEl.textContent = iceArtist;
+                safeUpdateArtist(iceArtist);
               }
               if ((!snipFresh || !hasTitle) && iceTrack) {
-                titleEl.textContent = iceTrack;
+                safeUpdateTitle(iceTrack);
               }
               
               if (iceKey !== lastTrackKey) {
@@ -600,7 +643,14 @@
       statusFailCount++;
       const playerLooksOk = !player.paused && player.readyState >= 2;
       if (!playerLooksOk && statusFailCount >= STATUS_FAIL_THRESHOLD) {
-        statusEl.textContent = "Flux indisponible…";
+        // Préserver le titre actuel au lieu de le réinitialiser
+        if (!lastKnownTitle && titleEl.textContent && titleEl.textContent !== "Chargement…") {
+          lastKnownTitle = titleEl.textContent;
+        }
+        if (!lastKnownArtist && artistEl.textContent) {
+          lastKnownArtist = artistEl.textContent;
+        }
+        statusEl.textContent = "Connexion au flux…";
         coverEl.src = FALLBACK_IMG;
       }
     }
@@ -608,9 +658,46 @@
     refreshIcecast();
     setInterval(refreshIcecast, 15000);
 
-    // ---- Gestion du bouton Play/Pause (sans intro, sans reconnexion automatique)
+    // Fonction de reconnexion automatique
+    function attemptReconnect() {
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        statusEl.textContent = "Impossible de se reconnecter. Veuillez actualiser la page.";
+        return;
+      }
+
+      reconnectAttempts++;
+      statusEl.textContent = `Reconnexion… (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
+      
+      // Préserver le titre actuel
+      if (lastKnownTitle && titleEl.textContent === "Chargement…") {
+        titleEl.textContent = lastKnownTitle;
+      }
+      if (lastKnownArtist && !artistEl.textContent) {
+        artistEl.textContent = lastKnownArtist;
+      }
+
+      // Réinitialiser le lecteur et réessayer
+      try {
+        player.load();
+        player.play().catch(err => {
+          console.warn("Tentative de reconnexion échouée:", err);
+          reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+        });
+      } catch (e) {
+        console.error("Erreur lors de la reconnexion:", e);
+        reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+      }
+    }
+
+    // ---- Gestion du bouton Play/Pause avec reconnexion automatique
     player.addEventListener("play", () => {
       userPaused = false;
+      reconnectAttempts = 0; // Réinitialiser le compteur en cas de succès
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      statusEl.textContent = ""; // Effacer le message de reconnexion
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
     });
@@ -622,30 +709,58 @@
     });
 
     player.addEventListener("playing", () => {
+      reconnectAttempts = 0; // Réinitialiser le compteur quand la lecture reprend
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      statusEl.textContent = ""; // Effacer le message de reconnexion
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
     });
+
+    // Détecter les interruptions de lecture
+    player.addEventListener("stalled", () => {
+      if (!userPaused) {
+        console.warn("Flux en pause (stalled), tentative de reconnexion...");
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+        }
+      }
+    });
+
+    player.addEventListener("waiting", () => {
+      if (!userPaused) {
+        statusEl.textContent = "Buffering…";
+      }
+    });
     
-    // Gestion des erreurs du lecteur
+    // Gestion des erreurs du lecteur avec reconnexion automatique
     player.addEventListener("error", (e) => {
       const error = player.error;
       let errorMsg = "Erreur de lecture";
+      let shouldReconnect = false;
+      
       if (error) {
         switch (error.code) {
           case error.MEDIA_ERR_ABORTED:
             errorMsg = "Lecture interrompue";
+            // Ne pas reconnecter pour les interruptions manuelles
             break;
           case error.MEDIA_ERR_NETWORK:
-            errorMsg = "Erreur réseau - Impossible de se connecter au flux";
+            errorMsg = "Erreur réseau - Reconnexion en cours…";
+            shouldReconnect = true;
             break;
           case error.MEDIA_ERR_DECODE:
-            errorMsg = "Erreur de décodage";
+            errorMsg = "Erreur de décodage - Nouvelle tentative…";
+            shouldReconnect = true;
             break;
           case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
             errorMsg = "Format non supporté";
             break;
           default:
-            errorMsg = `Erreur inconnue (code: ${error.code})`;
+            errorMsg = `Erreur (${error.code}) - Nouvelle tentative…`;
+            shouldReconnect = true;
         }
         
         console.error("Erreur lecteur audio:", {
@@ -657,9 +772,31 @@
         });
       } else {
         console.error("Erreur lecteur (sans détails):", e);
+        shouldReconnect = true;
+      }
+      
+      // Préserver le titre actuel
+      if (!lastKnownTitle && titleEl.textContent && titleEl.textContent !== "Chargement…") {
+        lastKnownTitle = titleEl.textContent;
+      }
+      if (!lastKnownArtist && artistEl.textContent) {
+        lastKnownArtist = artistEl.textContent;
+      }
+      
+      // Empêcher que "Chargement…" réapparaisse
+      if (titleEl.textContent === "Chargement…" && lastKnownTitle) {
+        titleEl.textContent = lastKnownTitle;
+      }
+      if (!artistEl.textContent && lastKnownArtist) {
+        artistEl.textContent = lastKnownArtist;
       }
       
       statusEl.textContent = errorMsg;
+      
+      // Tentative de reconnexion automatique pour les erreurs réseau
+      if (shouldReconnect && !userPaused && !reconnectTimer) {
+        reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+      }
     });
   </script>
 </body>
