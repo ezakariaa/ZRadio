@@ -786,36 +786,48 @@
             const currentTrack = titleEl.textContent;
             const currentArtist = artistEl.textContent;
             
+            // Au chargement initial, si on n'a pas encore de piste actuelle, prendre la dernière de l'historique
+            const isInitialState = !currentTrack || currentTrack === "Z Radio" || currentTrack === "Chargement…";
+            
             let previous = null;
+            
+            // Parcourir l'historique de la fin vers le début (les plus récentes en premier)
             for (let i = history.length - 1; i >= 0; i--) {
               const entry = history[i];
               const entryTrack = normalizeText(entry.track || entry.title || entry.name || "");
               const entryArtist = normalizeText(entry.artist || entry.artistName || entry.artist_name || "");
               
-              if (entryTrack && entryArtist) {
-                if (entryTrack !== currentTrack || entryArtist !== currentArtist) {
-                  previous = { 
-                    track: entryTrack, 
-                    artist: entryArtist,
-                    cover: entry.cover || entry.albumArt || entry.artwork || null
-                  };
-                  break;
+              if (entryTrack) {
+                // Si c'est le chargement initial, prendre la dernière entrée valide
+                if (isInitialState) {
+                  // Prendre la dernière entrée qui a au moins un titre
+                  if (entryTrack) {
+                    previous = { 
+                      track: entryTrack, 
+                      artist: entryArtist || "",
+                      cover: entry.cover || entry.albumArt || entry.artwork || null
+                    };
+                    break;
+                  }
+                } else {
+                  // Sinon, chercher une piste différente de la piste actuelle
+                  if (entryTrack !== currentTrack || entryArtist !== currentArtist) {
+                    previous = { 
+                      track: entryTrack, 
+                      artist: entryArtist || "",
+                      cover: entry.cover || entry.albumArt || entry.artwork || null
+                    };
+                    break;
+                  }
                 }
-              } else if (entryTrack && !currentTrack) {
-                previous = { 
-                  track: entryTrack, 
-                  artist: entryArtist || "",
-                  cover: entry.cover || entry.albumArt || entry.artwork || null
-                };
-                break;
               }
             }
 
             if (previous) {
               previousTrackData = previous;
               updatePreviousTrackDisplay();
+              return; // Sortir dès qu'on a trouvé une piste précédente
             }
-            return;
           }
         } catch (e) {
           // Erreur silencieuse pour les fichiers qui n'existent pas (normal)
@@ -959,18 +971,28 @@
       safeUpdateArtist("Live Stream");
       isInitialLoad = false;
       
+      // Charger l'historique des pistes précédentes IMMÉDIATEMENT (avant les métadonnées)
+      // pour l'afficher dès la première visite
+      refreshPreviousTrack().catch((err) => {
+        console.warn("Échec refreshPreviousTrack initial:", err);
+      });
+      
       // Charger les métadonnées EN ARRIÈRE-PLAN après que la page soit affichée
       // Utiliser requestIdleCallback pour ne pas bloquer le rendu
       const loadMetadataAsync = () => {
         // Tester la connectivité d'abord pour diagnostiquer
         testConnectivity().then(() => {
-          // Puis charger les métadonnées
+          // Puis charger les métadonnées ET l'historique des pistes précédentes (mise à jour)
           Promise.all([
             refreshIcecast().catch((err) => {
               console.error("Échec refreshIcecast:", err);
             }),
             refreshSnip().catch((err) => {
               console.error("Échec refreshSnip:", err);
+            }),
+            // Recharger l'historique après avoir chargé les métadonnées pour s'assurer qu'on a la bonne piste précédente
+            refreshPreviousTrack().catch((err) => {
+              console.error("Échec refreshPreviousTrack:", err);
             })
           ]).catch(() => {});
         });
