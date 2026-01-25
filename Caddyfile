@@ -82,6 +82,10 @@ z-radio.viewdns.net {
       # X-Forwarded-For est automatiquement ajouté par Caddy, pas besoin de le spécifier
       header_up X-Real-IP {remote_host}
       
+      # Préserver les headers de réponse d'Icecast (notamment Content-Type)
+      # Ne pas modifier les headers de réponse du serveur en amont
+      # Les headers seront préservés automatiquement si on ne les écrase pas
+      
       # Gestion des erreurs avec health checks (désactivés pour éviter les délais)
       # health_uri /status-json.xsl
       # health_interval 30s
@@ -92,12 +96,15 @@ z-radio.viewdns.net {
     }
     
     # Headers spécifiques pour le streaming audio
+    # IMPORTANT: Ne pas définir Content-Type ici pour préserver celui d'Icecast
     header {
       Access-Control-Allow-Origin "*"
       Access-Control-Allow-Methods "GET, HEAD, OPTIONS"
       Access-Control-Allow-Headers "Range, Content-Type, Accept"
       Access-Control-Expose-Headers "Content-Length, Content-Range"
-      Content-Type "audio/mpeg"
+      # Ne PAS définir Content-Type - laisser Icecast le définir
+      # Si Caddy ajoute automatiquement un Content-Type, on peut le supprimer avec:
+      # -Content-Type
       Accept-Ranges "bytes"
       Connection "keep-alive"
       # Pas de limite de taille pour les streams
@@ -140,19 +147,32 @@ z-radio.viewdns.net {
     }
   }
 
-  # Logging: Caddy émet ces warnings au niveau ERROR et il n'y a pas de moyen
-  # natif de les filtrer. Ces messages sont NORMALUX pour les flux audio streaming
-  # (client qui ferme la connexion = comportement attendu).
+  # Logging: Caddy émet ces warnings au niveau WARN pour les flux audio streaming
+  # Ces messages sont NORMALUX et indiquent que :
+  # - Un client a fermé la connexion (changement de page, fermeture d'onglet, etc.)
+  # - Caddy annule proprement la connexion en amont vers Icecast
   # 
-  # Options:
-  # 1. Accepter les warnings (ils n'affectent pas le fonctionnement)
-  # 2. Filtrer avec un outil externe (grep -v "context canceled")
-  # 3. Désactiver complètement les logs (décommentez "discard" ci-dessous)
+  # Ce n'est PAS un blocage - c'est le comportement attendu pour les streams.
+  # 
+  # Options pour réduire ces messages:
+  # 1. Accepter les warnings (recommandé - ils n'affectent pas le fonctionnement)
+  # 2. Filtrer avec un outil externe (grep -v "context canceled" ou "aborting with incomplete")
+  # 3. Désactiver les logs WARN pour le reverse_proxy (voir ci-dessous)
   
-  # Option actuelle: Logs minimaux (ERROR uniquement, mais ces warnings passent quand même)
-  # Décommentez la ligne suivante pour désactiver TOUS les logs:
+  # Option actuelle: Logs complets (INFO, WARN, ERROR)
+  # Pour désactiver TOUS les logs, décommentez:
   # log { output discard }
   
-  # Note: Ces warnings sont normaux et peuvent être ignorés en toute sécurité
+  # Pour désactiver uniquement les WARN du reverse_proxy (recommandé pour les streams):
+  # log {
+  #   output discard
+  #   level WARN
+  #   format filter {
+  #     exclude "http.handlers.reverse_proxy"
+  #   }
+  # }
+  
+  # Note: Ces warnings sont normaux et peuvent être ignorés en toute sécurité.
+  # Ils indiquent simplement qu'un client a fermé sa connexion au flux audio.
 
 }

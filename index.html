@@ -67,9 +67,14 @@
   </div>
 
   <!-- Player principal -->
-  <audio id="player" controls preload="none" crossorigin="anonymous">
+  <audio id="player" controls preload="metadata" crossorigin="anonymous">
     <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
     <source id="src2" src="https://z-radio.viewdns.net/stream" type="audio/mp3">
+    <source id="src3" src="https://z-radio.viewdns.net/stream" type="audio/x-mpeg">
+    <source id="src4" src="https://z-radio.viewdns.net/stream" type="audio/mp4">
+    <source id="src5" src="https://z-radio.viewdns.net/stream" type="audio/aac">
+    <source id="src6" src="https://z-radio.viewdns.net/stream" type="audio/ogg">
+    <source id="src7" src="https://z-radio.viewdns.net/stream">
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
@@ -102,6 +107,7 @@
       ICECAST_BASE + "/status-json.xsl"
     ];
     const MOUNT        = "/stream";
+    const STREAM_URL   = ICECAST_BASE + "/stream"; // URL du stream (constante pour éviter la corruption)
     const FALLBACK_IMG = "cover.gif";
 
     const player   = document.getElementById("player");
@@ -129,6 +135,8 @@
     let lastKnownArtist = "";
     const FETCH_TIMEOUT = 3000; // 3 secondes max (compromis vitesse/fiabilité)
     let isInitialLoad = true;
+    let bufferingTimer = null;
+    const BUFFERING_TIMEOUT = 4000; // 4 secondes max de buffering avant reconnexion
 
     function normalizeText(str) {
       if (!str) return "";
@@ -153,6 +161,23 @@
           throw new Error('Timeout: requête trop longue');
         }
         throw error;
+      }
+    }
+
+    // Fonction pour détecter le Content-Type réel du flux
+    async function testStreamContentType() {
+      try {
+        const response = await fetchWithTimeout(ICECAST_BASE + "/stream", {
+          method: "HEAD",
+          cache: "no-store"
+        }, 3000);
+        
+        const contentType = response.headers.get("Content-Type");
+        console.log("Content-Type du flux:", contentType);
+        return contentType;
+      } catch (error) {
+        console.error("Erreur lors de la détection du Content-Type:", error);
+        return null;
       }
     }
 
@@ -218,7 +243,9 @@
     // Recherche sur iTunes avec meilleure précision
     async function searchITunes(artist, track) {
       try {
-        // Tentative 1 : recherche précise avec artiste et titre
+        // Accepter artiste seul ou titre seul
+        if (!artist && !track) return null;
+        
         let query = "";
         if (artist && track) {
           query = `${artist} ${track}`;
@@ -226,24 +253,27 @@
           query = artist;
         } else if (track) {
           query = track;
-        } else {
-          return null;
         }
 
-        const url = `https://itunes.apple.com/search?entity=song&limit=10&term=${encodeURIComponent(query)}`;
-        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000); // 2s max pour iTunes
+        const url = `https://itunes.apple.com/search?entity=song&limit=20&term=${encodeURIComponent(query)}`;
+        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000);
+        if (!r.ok) return null;
         const data = await r.json();
         
         if (data.results && data.results.length > 0) {
-          // Cherche un résultat qui correspond vraiment
-          for (const result of data.results) {
-            if (matchesResult(result, artist, track) && result.artworkUrl100) {
-              return result.artworkUrl100.replace("100x100", "600x600");
+          // Si on a artiste ET titre, chercher un match exact
+          if (artist && track) {
+            for (const result of data.results) {
+              if (matchesResult(result, artist, track) && result.artworkUrl100) {
+                return result.artworkUrl100.replace("100x100", "600x600");
+              }
             }
           }
-          // Si aucun match exact, prend le premier résultat
-          if (data.results[0].artworkUrl100) {
-            return data.results[0].artworkUrl100.replace("100x100", "600x600");
+          // Sinon, prendre le premier résultat avec artwork
+          for (const result of data.results) {
+            if (result.artworkUrl100) {
+              return result.artworkUrl100.replace("100x100", "600x600");
+            }
           }
         }
       } catch (err) {
@@ -261,19 +291,51 @@
         // le système utilisera les autres services. Obtenez une clé gratuite sur:
         // https://www.last.fm/api/account/create
         const apiKey = "c8d5c4d5c4d5c4d5c4d5c4d5c4d5c4d5"; // Remplacez par votre clé API Last.fm
-        const url = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}&format=json`;
-        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000); // 2s max pour Last.fm
-        if (!r.ok) return null;
-        const data = await r.json();
         
-        if (data.track && data.track.album && data.track.album.image) {
-          // Last.fm fournit plusieurs tailles, on prend la grande (extralarge ou large)
-          const images = data.track.album.image;
-          for (let i = images.length - 1; i >= 0; i--) {
-            if (images[i]["#text"]) {
-              return images[i]["#text"];
+        // Méthode 1 : track.getInfo (plus précis)
+        try {
+          const url = `https://ws.audioscrobbler.com/2.0/?method=track.getInfo&api_key=${apiKey}&artist=${encodeURIComponent(artist)}&track=${encodeURIComponent(track)}&format=json`;
+          const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000);
+          if (r.ok) {
+            const data = await r.json();
+            if (data.track && data.track.album && data.track.album.image) {
+              // Last.fm fournit plusieurs tailles, on prend la grande (extralarge ou large)
+              const images = data.track.album.image;
+              for (let i = images.length - 1; i >= 0; i--) {
+                if (images[i]["#text"]) {
+                  return images[i]["#text"];
+                }
+              }
             }
           }
+        } catch (e) {
+          // Si track.getInfo échoue, essayer album.search
+        }
+        
+        // Méthode 2 : album.search (si track.getInfo échoue)
+        try {
+          const searchUrl = `https://ws.audioscrobbler.com/2.0/?method=album.search&api_key=${apiKey}&album=${encodeURIComponent(track)}&artist=${encodeURIComponent(artist)}&format=json`;
+          const r = await fetchWithTimeout(searchUrl, { cache: "no-store" }, 2000);
+          if (r.ok) {
+            const data = await r.json();
+            if (data.results && data.results.albummatches && data.results.albummatches.album) {
+              const albums = Array.isArray(data.results.albummatches.album) 
+                ? data.results.albummatches.album 
+                : [data.results.albummatches.album];
+              for (const album of albums) {
+                if (album.image && album.image.length > 0) {
+                  // Prendre la plus grande image
+                  for (let i = album.image.length - 1; i >= 0; i--) {
+                    if (album.image[i]["#text"]) {
+                      return album.image[i]["#text"];
+                    }
+                  }
+                }
+              }
+            }
+          }
+        } catch (e) {
+          // Si les deux méthodes échouent, retourner null
         }
       } catch (err) {
         console.warn("Last.fm search error:", err);
@@ -335,28 +397,33 @@
     // Recherche sur Deezer (API gratuite, pas besoin de clé pour la recherche)
     async function searchDeezer(artist, track) {
       try {
-        if (!artist || !track) return null;
+        // Accepter artiste seul ou titre seul
+        if (!artist && !track) return null;
         
-        const query = `${artist} ${track}`;
-        const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=5`;
-        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000); // 2s max pour Deezer
+        const query = artist && track ? `${artist} ${track}` : (artist || track);
+        const url = `https://api.deezer.com/search?q=${encodeURIComponent(query)}&limit=10`;
+        const r = await fetchWithTimeout(url, { cache: "no-store" }, 2000);
         
         if (!r.ok) return null;
         const data = await r.json();
         
         if (data.data && data.data.length > 0) {
-          // Cherche un résultat qui correspond
-          for (const result of data.data) {
-            if (matchesResult({ 
-              artist: result.artist?.name, 
-              track: result.title 
-            }, artist, track) && result.album?.cover_xl) {
-              return result.album.cover_xl; // XL = 1000x1000px
+          // Si on a artiste ET titre, chercher un match exact
+          if (artist && track) {
+            for (const result of data.data) {
+              if (matchesResult({ 
+                artist: result.artist?.name, 
+                track: result.title 
+              }, artist, track) && result.album?.cover_xl) {
+                return result.album.cover_xl;
+              }
             }
           }
-          // Si aucun match exact, prend le premier résultat
-          if (data.data[0]?.album?.cover_xl) {
-            return data.data[0].album.cover_xl;
+          // Sinon, prendre le premier résultat avec cover
+          for (const result of data.data) {
+            if (result.album?.cover_xl) {
+              return result.album.cover_xl; // XL = 1000x1000px
+            }
           }
         }
       } catch (err) {
@@ -365,44 +432,262 @@
       return null;
     }
 
+    // Recherche sur Spotify (via méthode alternative - l'API officielle nécessite OAuth)
+    async function searchSpotify(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        // L'API Spotify officielle nécessite OAuth, mais on peut utiliser des services tiers
+        // Alternative : utiliser unembed.com ou d'autres services qui fournissent les métadonnées Spotify
+        const query = `${artist} ${track}`;
+        
+        // Méthode 1 : Essayer via unembed (service tiers qui permet d'obtenir les métadonnées Spotify)
+        try {
+          const unembedUrl = `https://unembed.com/api/spotify/search?q=${encodeURIComponent(query)}`;
+          const r = await fetchWithTimeout(unembedUrl, { cache: "no-store" }, 2000);
+          if (r.ok) {
+            const data = await r.json();
+            if (data && data.album && data.album.images && data.album.images.length > 0) {
+              return data.album.images[0].url;
+            }
+          }
+        } catch (e) {
+          // Si unembed échoue, essayer une autre méthode
+        }
+        
+        // Méthode 2 : Utiliser l'API Spotify Web (peut fonctionner sans token pour certaines requêtes)
+        // Note: Cette méthode peut ne pas fonctionner à cause des restrictions CORS
+        // On la laisse en commentaire car elle nécessite généralement une authentification
+        
+      } catch (err) {
+        console.warn("Spotify search error:", err);
+      }
+      return null;
+    }
+
+    // Recherche sur Discogs (API gratuite, peut fonctionner sans clé avec limites)
+    async function searchDiscogs(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        const query = `${artist} ${track}`;
+        // Discogs API peut fonctionner sans clé mais avec des limites de rate
+        const url = `https://api.discogs.com/database/search?q=${encodeURIComponent(query)}&type=release&per_page=5`;
+        const r = await fetchWithTimeout(url, { 
+          cache: "no-store",
+          headers: {
+            'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
+            'Accept': 'application/json'
+          }
+        }, 2000);
+        
+        if (r.ok) {
+          const data = await r.json();
+          if (data.results && data.results.length > 0) {
+            // Chercher un résultat qui correspond
+            for (const result of data.results) {
+              if (result.thumb) {
+                const resultTitle = result.title || "";
+                const resultArtist = result.artist || "";
+                // Vérifier si ça correspond
+                if (matchesResult({
+                  artist: resultArtist,
+                  track: resultTitle
+                }, artist, track)) {
+                  // Discogs fournit des thumbnails, essayer d'obtenir une image plus grande
+                  // Les URLs Discogs peuvent être modifiées pour obtenir des tailles différentes
+                  if (result.thumb.includes('150x150')) {
+                    return result.thumb.replace('150x150', '500x500');
+                  }
+                  return result.thumb;
+                }
+              }
+            }
+            // Prendre le premier résultat avec thumb
+            const firstResult = data.results.find(r => r.thumb);
+            if (firstResult?.thumb) {
+              if (firstResult.thumb.includes('150x150')) {
+                return firstResult.thumb.replace('150x150', '500x500');
+              }
+              return firstResult.thumb;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Discogs search error:", err);
+      }
+      return null;
+    }
+
+    // Recherche sur Amazon Music (difficile sans API officielle)
+    async function searchAmazonMusic(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        // Amazon Music n'a pas d'API publique accessible facilement
+        // Le scraping direct ne fonctionne pas à cause de CORS et de la protection anti-bot
+        // On peut essayer via des services tiers, mais pour l'instant on retourne null
+        // Note: Si vous avez accès à l'API Amazon Music, vous pouvez l'implémenter ici
+        
+        return null;
+      } catch (err) {
+        console.debug("Amazon Music search (non disponible):", err);
+      }
+      return null;
+    }
+
+    // Recherche sur Genius (API nécessite une clé, mais on peut essayer)
+    async function searchGenius(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        // Genius API nécessite généralement une clé, mais certaines requêtes peuvent fonctionner
+        const query = `${artist} ${track}`;
+        const url = `https://api.genius.com/search?q=${encodeURIComponent(query)}`;
+        
+        // Essayer sans clé (peut ne pas fonctionner à cause des restrictions)
+        const r = await fetchWithTimeout(url, { 
+          cache: "no-store",
+          headers: {
+            'Accept': 'application/json'
+          }
+        }, 2000);
+        
+        if (r.ok) {
+          const data = await r.json();
+          if (data.response && data.response.hits && data.response.hits.length > 0) {
+            // Chercher un hit qui correspond
+            for (const hit of data.response.hits) {
+              if (hit.result) {
+                const hitArtist = hit.result.primary_artist?.name || "";
+                const hitTitle = hit.result.title || "";
+                if (matchesResult({ artist: hitArtist, track: hitTitle }, artist, track)) {
+                  if (hit.result.song_art_image_url) {
+                    return hit.result.song_art_image_url;
+                  }
+                }
+              }
+            }
+            // Prendre le premier résultat avec image
+            const firstHit = data.response.hits.find(h => h.result?.song_art_image_url);
+            if (firstHit?.result?.song_art_image_url) {
+              return firstHit.result.song_art_image_url;
+            }
+          }
+        }
+      } catch (err) {
+        // Genius peut bloquer les requêtes sans clé, c'est normal
+        console.debug("Genius search (peut nécessiter une clé API):", err);
+      }
+      return null;
+    }
+
+    // Recherche sur Bandcamp (scraping possible)
+    async function searchBandcamp(artist, track) {
+      try {
+        if (!artist || !track) return null;
+        
+        // Bandcamp permet la recherche via leur site
+        const query = `${artist} ${track}`;
+        const searchUrl = `https://bandcamp.com/search?q=${encodeURIComponent(query)}`;
+        
+        // Le scraping direct ne fonctionne pas à cause de CORS
+        // On retourne null et on laisse les autres services prendre le relais
+        return null;
+      } catch (err) {
+        console.warn("Bandcamp search error:", err);
+      }
+      return null;
+    }
+
     async function ensureCover(explicitCover, track, artist) {
-      const key = [explicitCover || "", track || "", artist || ""].join("|");
-      if (key === lastCoverKey) return;
+      // Normaliser les paramètres
+      const normTrack = track ? track.trim() : "";
+      const normArtist = artist ? artist.trim() : "";
+      const key = [explicitCover || "", normTrack, normArtist].join("|");
+      
+      // Si la clé est la même ET que le cover actuel n'est pas le fallback, ne pas recharger
+      // MAIS si lastCoverKey est vide (nouvelle piste détectée), forcer la mise à jour
+      // MAIS aussi forcer la mise à jour si on a un cover explicite différent
+      const shouldSkip = key === lastCoverKey && 
+                        lastCoverKey !== "" && 
+                        coverEl.src && 
+                        !coverEl.src.includes(FALLBACK_IMG) &&
+                        !explicitCover; // Toujours mettre à jour si on a un cover explicite
+      
+      if (shouldSkip) {
+        console.log("Cover déjà chargé pour cette piste, skip");
+        return;
+      }
+      
+      // Mettre à jour la clé AVANT la recherche pour éviter les recherches multiples simultanées
       lastCoverKey = key;
 
+      // Si on a un cover explicite, l'utiliser directement
       if (explicitCover) {
         const bust = explicitCover.includes("?") ? "&" : "?";
         coverEl.src = explicitCover + bust + "t=" + Date.now();
         return;
       }
 
-      if (!track && !artist) {
+      // Si pas de track ni artist, utiliser le fallback
+      if (!normTrack && !normArtist) {
         coverEl.src = FALLBACK_IMG;
         return;
       }
 
-      // Recherche en cascade sur plusieurs services (du plus fiable au moins fiable)
-      // Tentative 1 : iTunes (meilleure qualité, 600x600px)
-      let coverUrl = await searchITunes(artist, track);
-      
-      // Tentative 2 : Deezer (très bonne qualité, 1000x1000px, API gratuite)
-      if (!coverUrl) {
-        coverUrl = await searchDeezer(artist, track);
-      }
-      
-      // Tentative 3 : MusicBrainz + Cover Art Archive (gratuit, open source, 500x500px)
-      if (!coverUrl) {
-        coverUrl = await searchMusicBrainz(artist, track);
-      }
-      
-      // Tentative 4 : Last.fm (si clé API configurée)
-      if (!coverUrl) {
-        coverUrl = await searchLastFM(artist, track);
+      console.log("Recherche de cover pour:", { artist: normArtist, track: normTrack });
+
+      // Recherche en cascade sur TOUS les services en parallèle pour plus de rapidité
+      // On essaie tous les services en même temps et on prend le premier résultat
+      const searchPromises = [
+        searchITunes(normArtist, normTrack).catch(() => null),
+        searchDeezer(normArtist, normTrack).catch(() => null),
+        searchSpotify(normArtist, normTrack).catch(() => null),
+        searchMusicBrainz(normArtist, normTrack).catch(() => null),
+        searchLastFM(normArtist, normTrack).catch(() => null),
+        searchDiscogs(normArtist, normTrack).catch(() => null),
+        searchGenius(normArtist, normTrack).catch(() => null),
+        searchAmazonMusic(normArtist, normTrack).catch(() => null),
+        searchBandcamp(normArtist, normTrack).catch(() => null)
+      ];
+
+      // Attendre tous les résultats et prendre le premier qui réussit
+      const results = await Promise.all(searchPromises);
+      let coverUrl = results.find(url => url !== null && url !== undefined);
+
+      // Si aucun résultat, essayer une recherche plus large (sans artiste ou sans titre)
+      if (!coverUrl && normTrack && normArtist) {
+        console.log("Aucun résultat trouvé, essai avec recherche élargie...");
+        // Essayer avec seulement l'artiste ou seulement le titre
+        const fallbackPromises = [
+          searchITunes(normArtist, "").catch(() => null),
+          searchDeezer(normArtist, "").catch(() => null),
+          searchSpotify(normArtist, "").catch(() => null),
+          searchITunes("", normTrack).catch(() => null),
+          searchDeezer("", normTrack).catch(() => null),
+          searchSpotify("", normTrack).catch(() => null)
+        ];
+        const fallbackResults = await Promise.all(fallbackPromises);
+        coverUrl = fallbackResults.find(url => url !== null && url !== undefined);
       }
 
+      // Mettre à jour le cover
       if (coverUrl) {
-        coverEl.src = coverUrl;
+        console.log("Cover trouvé:", coverUrl);
+        // Ajouter un timestamp pour éviter le cache
+        const finalUrl = coverUrl + (coverUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
+        coverEl.src = finalUrl;
+        
+        // Vérifier que l'image se charge bien, sinon utiliser le fallback
+        const img = new Image();
+        img.onerror = () => {
+          console.warn("Erreur chargement cover, utilisation du fallback");
+          coverEl.src = FALLBACK_IMG;
+        };
+        img.src = finalUrl;
       } else {
+        console.log("Aucun cover trouvé, utilisation du fallback");
         coverEl.src = FALLBACK_IMG;
       }
     }
@@ -414,11 +699,18 @@
         let coverUrl = previousTrackData.cover || FALLBACK_IMG;
         
         if (!previousTrackData.cover && previousTrackData.artist && previousTrackData.track) {
-          // Utilise la même logique en cascade que ensureCover
-          let foundCover = await searchITunes(previousTrackData.artist, previousTrackData.track);
-          if (!foundCover) foundCover = await searchDeezer(previousTrackData.artist, previousTrackData.track);
-          if (!foundCover) foundCover = await searchMusicBrainz(previousTrackData.artist, previousTrackData.track);
-          if (!foundCover) foundCover = await searchLastFM(previousTrackData.artist, previousTrackData.track);
+          // Utilise la même logique en cascade que ensureCover - tester tous les services
+          const coverPromises = [
+            searchITunes(previousTrackData.artist, previousTrackData.track),
+            searchDeezer(previousTrackData.artist, previousTrackData.track),
+            searchSpotify(previousTrackData.artist, previousTrackData.track),
+            searchMusicBrainz(previousTrackData.artist, previousTrackData.track),
+            searchLastFM(previousTrackData.artist, previousTrackData.track),
+            searchDiscogs(previousTrackData.artist, previousTrackData.track),
+            searchGenius(previousTrackData.artist, previousTrackData.track)
+          ];
+          const coverResults = await Promise.all(coverPromises.map(p => p.catch(() => null)));
+          const foundCover = coverResults.find(url => url !== null && url !== undefined);
           if (foundCover) {
             coverUrl = foundCover;
           }
@@ -551,6 +843,11 @@
         // Au chargement initial, toujours mettre à jour même si on a déjà un titre
         const shouldUpdate = isInitialLoad || currentKey !== lastTrackKey;
 
+        // Au chargement initial, toujours rechercher le cover
+        if (isInitialLoad && (track || artist)) {
+          lastCoverKey = ""; // Forcer la recherche du cover au chargement initial
+        }
+
         if (shouldUpdate && currentKey !== lastTrackKey && lastTrackKey) {
           const oldTrack = titleEl.textContent;
           const oldArtist = artistEl.textContent;
@@ -566,24 +863,93 @@
         }
 
         if (shouldUpdate && currentKey !== lastTrackKey) {
-          lastCoverKey = "";
+          // NOUVELLE PISTE : réinitialiser le cover pour forcer la mise à jour
+          lastCoverKey = ""; // Forcer la recherche du cover
           lastTrackKey = currentKey;
+          console.log("Nouvelle piste détectée (Snip):", { track, artist });
+          // Charger la pochette IMMÉDIATEMENT pour la nouvelle piste
+          ensureCover(meta.cover, track, artist).catch((err) => {
+            console.warn("Erreur ensureCover:", err);
+          });
           refreshPreviousTrack();
+        } else if (shouldUpdate) {
+          // Même piste mais toujours vérifier le cover (au cas où il n'était pas chargé)
+          // Réinitialiser lastCoverKey pour forcer la vérification
+          if (!coverEl.src || coverEl.src.includes(FALLBACK_IMG)) {
+            lastCoverKey = ""; // Forcer la recherche si on a le fallback
+          }
+          ensureCover(meta.cover, track, artist).catch((err) => {
+            console.warn("Erreur ensureCover:", err);
+          });
         }
 
         // Toujours mettre à jour au chargement initial, sinon seulement si on a des données
         if (shouldUpdate || track || artist) {
           safeUpdateTitle(track);
           safeUpdateArtist(artist);
+          // Si pas de nouvelle piste mais qu'on a des données, toujours vérifier le cover
+          // (au cas où il n'était pas chargé ou si on a maintenant un cover explicite)
+          if (currentKey === lastTrackKey && track && artist) {
+            // Forcer la vérification si on a le fallback ou si on a un cover explicite
+            if (!meta.cover || coverEl.src.includes(FALLBACK_IMG)) {
+              lastCoverKey = ""; // Forcer la recherche
+            }
+            ensureCover(meta.cover, track, artist).catch((err) => {
+              console.warn("Erreur ensureCover:", err);
+            });
+          }
         }
-
-        // Charger la pochette de manière non-bloquante
-        ensureCover(meta.cover, track, artist).catch(() => {});
         lastSnipUpdate = Date.now();
 
       } catch (e) {
         // Erreur silencieuse, ne pas ralentir
       }
+    }
+
+    // Fonction de test de connectivité pour diagnostiquer les problèmes
+    async function testConnectivity() {
+      console.log("=== TEST DE CONNECTIVITÉ ===");
+      console.log("URLs à tester:", STATUS_URLS);
+      console.log("Flux audio:", ICECAST_BASE + "/stream");
+      
+      // Tester chaque URL
+      for (const url of STATUS_URLS) {
+        try {
+          console.log("Test de:", url);
+          const startTime = Date.now();
+          const r = await fetchWithTimeout(url, { cache: "no-store", mode: "cors" }, 5000);
+          const duration = Date.now() - startTime;
+          
+          if (r.ok) {
+            console.log("✓ Succès:", url, `(${duration}ms)`);
+            const data = await r.json();
+            console.log("Données reçues:", data);
+          } else {
+            console.error("✗ Erreur HTTP:", r.status, r.statusText, "pour", url);
+          }
+        } catch (e) {
+          console.error("✗ Échec:", url, "-", e.message || e);
+        }
+      }
+      
+      // Tester le flux audio
+      try {
+        console.log("Test du flux audio:", ICECAST_BASE + "/stream");
+        const audioTest = await fetchWithTimeout(ICECAST_BASE + "/stream", { 
+          method: "HEAD",
+          cache: "no-store",
+          mode: "cors"
+        }, 5000);
+        if (audioTest.ok) {
+          console.log("✓ Flux audio accessible");
+        } else {
+          console.error("✗ Flux audio - Erreur HTTP:", audioTest.status);
+        }
+      } catch (e) {
+        console.error("✗ Flux audio inaccessible:", e.message || e);
+      }
+      
+      console.log("=== FIN DU TEST ===");
     }
 
     // Chargement ULTRA-RAPIDE : afficher la page immédiatement, métadonnées après
@@ -596,11 +962,18 @@
       // Charger les métadonnées EN ARRIÈRE-PLAN après que la page soit affichée
       // Utiliser requestIdleCallback pour ne pas bloquer le rendu
       const loadMetadataAsync = () => {
-        // Charger en parallèle sans bloquer
-        Promise.all([
-          refreshIcecast().catch(() => {}),
-          refreshSnip().catch(() => {})
-        ]).catch(() => {});
+        // Tester la connectivité d'abord pour diagnostiquer
+        testConnectivity().then(() => {
+          // Puis charger les métadonnées
+          Promise.all([
+            refreshIcecast().catch((err) => {
+              console.error("Échec refreshIcecast:", err);
+            }),
+            refreshSnip().catch((err) => {
+              console.error("Échec refreshSnip:", err);
+            })
+          ]).catch(() => {});
+        });
       };
       
       // Attendre que le navigateur soit prêt, mais ne pas bloquer
@@ -631,13 +1004,25 @@
 
     async function refreshIcecast() {
       let lastError = null;
+      let allErrors = [];
+      
       for (const baseUrl of STATUS_URLS) {
         try {
           const url = baseUrl + (baseUrl.includes("?") ? "&" : "?") + "t=" + Date.now();
+          console.log("Tentative de connexion à:", url);
+          
           // Utiliser fetchWithTimeout pour éviter les blocages
           const r = await fetchWithTimeout(url, { cache:"no-store", mode:"cors" }, FETCH_TIMEOUT);
-          if (!r.ok) throw new Error("HTTP " + r.status);
+          
+          if (!r.ok) {
+            const error = new Error(`HTTP ${r.status} - ${r.statusText}`);
+            console.error("Erreur HTTP:", r.status, r.statusText, "pour", url);
+            allErrors.push(error);
+            throw error;
+          }
+          
           const data = await r.json();
+          console.log("Connexion réussie à:", baseUrl, "Données:", data);
 
           const src = pickSource(data.icestats);
           if (!src) throw new Error("Aucune source");
@@ -684,6 +1069,13 @@
                 // Chargement initial : forcer la mise à jour
                 if (iceArtist) safeUpdateArtist(iceArtist);
                 if (iceTrack) safeUpdateTitle(iceTrack);
+                // Au chargement initial, toujours rechercher le cover
+                if (iceTrack || iceArtist) {
+                  lastCoverKey = ""; // Forcer la recherche du cover
+                  ensureCover(null, iceTrack, iceArtist).catch((err) => {
+                    console.warn("Erreur ensureCover au chargement initial:", err);
+                  });
+                }
               } else {
                 // Mise à jour normale : seulement si nécessaire
                 if ((!snipFresh || !hasArtist) && iceArtist) {
@@ -695,28 +1087,73 @@
               }
               
               if (iceKey !== lastTrackKey) {
+                // NOUVELLE PISTE : réinitialiser le cover pour forcer la mise à jour
                 lastCoverKey = "";
                 lastTrackKey = iceKey;
+                console.log("Nouvelle piste détectée:", { track: iceTrack, artist: iceArtist });
+                // Charger la pochette IMMÉDIATEMENT pour la nouvelle piste
+                ensureCover(null, iceTrack, iceArtist).catch((err) => {
+                  console.warn("Erreur ensureCover pour nouvelle piste:", err);
+                });
                 refreshPreviousTrack();
+              } else {
+                // Même piste mais toujours vérifier le cover (au cas où il n'était pas chargé)
+                // Forcer la vérification si on a le fallback
+                if (!coverEl.src || coverEl.src.includes(FALLBACK_IMG)) {
+                  lastCoverKey = ""; // Forcer la recherche si on a le fallback
+                }
+                ensureCover(null, titleEl.textContent, artistEl.textContent).catch((err) => {
+                  console.warn("Erreur ensureCover:", err);
+                });
               }
-              
-              // Charger la pochette de manière non-bloquante
-              ensureCover(null, titleEl.textContent, artistEl.textContent).catch(() => {});
               if (!snipFresh) lastSnipUpdate = 0;
             }
           }
 
-          return;
+          return; // Succès, on sort de la fonction
         } catch (e) {
           lastError = e;
+          allErrors.push(e);
+          console.warn("Échec de connexion à", baseUrl, ":", e.message || e);
         }
       }
 
+      // Si on arrive ici, toutes les tentatives ont échoué
       if (lastError) {
-        console.error("Erreur refreshIcecast:", lastError);
+        console.error("Toutes les tentatives de connexion ont échoué:", allErrors);
+        
+        // Diagnostic détaillé
+        const errorDetails = allErrors.map(e => {
+          if (e.message) {
+            if (e.message.includes("Failed to fetch") || e.message.includes("NetworkError")) {
+              return "Erreur réseau - Le serveur est peut-être inaccessible";
+            }
+            if (e.message.includes("HTTP 404")) {
+              return "Page non trouvée (404) - Vérifiez l'URL";
+            }
+            if (e.message.includes("HTTP 503")) {
+              return "Service indisponible (503) - Le serveur Icecast est peut-être arrêté";
+            }
+            if (e.message.includes("HTTP 500")) {
+              return "Erreur serveur (500) - Problème côté serveur";
+            }
+            if (e.message.includes("Timeout")) {
+              return "Timeout - Le serveur ne répond pas assez vite";
+            }
+            if (e.message.includes("CORS")) {
+              return "Erreur CORS - Problème de configuration Caddy";
+            }
+            return e.message;
+          }
+          return String(e);
+        }).join(" | ");
+        
+        console.error("Détails des erreurs:", errorDetails);
       }
+      
       statusFailCount++;
       const playerLooksOk = !player.paused && player.readyState >= 2;
+      
       if (!playerLooksOk && statusFailCount >= STATUS_FAIL_THRESHOLD) {
         // Préserver le titre actuel au lieu de le réinitialiser
         if (!lastKnownTitle && titleEl.textContent && titleEl.textContent !== "Chargement…") {
@@ -725,9 +1162,30 @@
         if (!lastKnownArtist && artistEl.textContent) {
           lastKnownArtist = artistEl.textContent;
         }
-        // Ne pas afficher de message si le lecteur fonctionne
-        if (player.readyState < 2) {
-          statusEl.textContent = "Connexion au serveur…";
+        
+        // Afficher un message d'erreur plus détaillé
+        if (player.readyState < 2 || statusFailCount >= STATUS_FAIL_THRESHOLD) {
+          let errorMsg = "Connexion au serveur…";
+          if (lastError) {
+            const errorMsg_lower = lastError.message ? lastError.message.toLowerCase() : "";
+            if (errorMsg_lower.includes("failed to fetch") || errorMsg_lower.includes("networkerror")) {
+              errorMsg = "Serveur inaccessible - Vérifiez que Caddy et Icecast fonctionnent";
+            } else if (errorMsg_lower.includes("http 503") || errorMsg_lower.includes("503")) {
+              errorMsg = "Service indisponible (503) - Icecast est peut-être arrêté";
+            } else if (errorMsg_lower.includes("http 404") || errorMsg_lower.includes("404")) {
+              errorMsg = "Page non trouvée (404) - Vérifiez la configuration Caddy";
+            } else if (errorMsg_lower.includes("http 500") || errorMsg_lower.includes("500")) {
+              errorMsg = "Erreur serveur (500) - Problème côté serveur";
+            } else if (errorMsg_lower.includes("timeout") || errorMsg_lower.includes("aborted")) {
+              errorMsg = "Timeout - Le serveur ne répond pas assez vite";
+            } else if (errorMsg_lower.includes("cors")) {
+              errorMsg = "Erreur CORS - Problème de configuration";
+            } else {
+              errorMsg = `Impossible de se connecter: ${lastError.message || "Erreur inconnue"}`;
+            }
+          }
+          statusEl.textContent = errorMsg;
+          console.error("Message d'erreur affiché:", errorMsg);
         }
         coverEl.src = FALLBACK_IMG;
       }
@@ -744,6 +1202,12 @@
         return;
       }
 
+      // Nettoyer le timer de buffering
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
+
       reconnectAttempts++;
       statusEl.textContent = `Reconnexion… (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`;
       
@@ -755,21 +1219,48 @@
         artistEl.textContent = lastKnownArtist;
       }
 
-      // Réinitialiser le lecteur et réessayer (version simplifiée)
+      // Réinitialiser le lecteur et réessayer avec l'URL correcte
       try {
+        // Utiliser l'URL du stream directement, pas player.src qui peut être corrompu
+        player.src = "";
         player.load();
-        player.play().catch(err => {
-          console.warn("Tentative de reconnexion échouée:", err);
-          reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
-        });
+        
+        // Attendre un peu avant de réassigner la source
+        setTimeout(() => {
+          // Réassigner toutes les sources avec l'URL correcte
+          const sources = player.querySelectorAll("source");
+          sources.forEach(source => {
+            source.src = STREAM_URL + (source.src.includes("?") ? "" : "?t=" + Date.now());
+          });
+          
+          // Réassigner aussi player.src directement
+          player.src = STREAM_URL + "?t=" + Date.now();
+          player.load();
+          
+          // Essayer de jouer immédiatement
+          player.play().catch(err => {
+            console.warn("Tentative de reconnexion échouée:", err);
+            if (!reconnectTimer) {
+              reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+            }
+          });
+        }, 150);
       } catch (e) {
         console.error("Erreur lors de la reconnexion:", e);
-        reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+        }
       }
     }
 
     // ---- Gestion du bouton Play/Pause avec reconnexion automatique
     player.addEventListener("play", () => {
+      // Nettoyer le timer de buffering
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
+      
       // Si l'utilisateur a mis en pause puis relance, actualiser le flux
       const shouldRefresh = wasPaused && userPaused;
       
@@ -780,10 +1271,15 @@
         // Recharger le flux pour obtenir la version la plus récente
         try {
           // Réinitialiser la source pour forcer une nouvelle connexion
-          const currentSrc = player.src;
           player.src = "";
           player.load();
-          player.src = currentSrc;
+          
+          // Réassigner avec l'URL correcte
+          const sources = player.querySelectorAll("source");
+          sources.forEach(source => {
+            source.src = STREAM_URL + "?t=" + Date.now();
+          });
+          player.src = STREAM_URL + "?t=" + Date.now();
           player.load();
           
           // Attendre que le flux soit prêt avant de jouer
@@ -829,6 +1325,10 @@
     player.addEventListener("pause", () => {
       userPaused = true;
       wasPaused = true; // Marquer qu'on vient de mettre en pause
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.add("hidden");
     });
@@ -839,6 +1339,10 @@
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
       statusEl.textContent = ""; // Effacer le message de reconnexion
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
@@ -848,6 +1352,10 @@
     player.addEventListener("stalled", () => {
       if (!userPaused) {
         console.warn("Flux en pause (stalled), tentative de reconnexion...");
+        if (bufferingTimer) {
+          clearTimeout(bufferingTimer);
+          bufferingTimer = null;
+        }
         if (!reconnectTimer) {
           reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
         }
@@ -857,6 +1365,62 @@
     player.addEventListener("waiting", () => {
       if (!userPaused) {
         statusEl.textContent = "Buffering…";
+        
+        // Si le buffering prend trop de temps, forcer une reconnexion
+        if (bufferingTimer) {
+          clearTimeout(bufferingTimer);
+        }
+        
+        bufferingTimer = setTimeout(() => {
+          if (!userPaused && player.readyState < 2) {
+            // Le flux n'a pas assez de données après 4 secondes
+            console.warn("Buffering trop long, tentative de reconnexion...");
+            statusEl.textContent = "Reconnexion…";
+            bufferingTimer = null;
+            
+            // Forcer une reconnexion avec l'URL correcte
+            try {
+              player.src = "";
+              player.load();
+              setTimeout(() => {
+                // Utiliser l'URL du stream directement
+                const sources = player.querySelectorAll("source");
+                sources.forEach(source => {
+                  source.src = STREAM_URL + "?t=" + Date.now();
+                });
+                player.src = STREAM_URL + "?t=" + Date.now();
+                player.load();
+                player.play().catch(err => {
+                  console.warn("Erreur après reconnexion buffering:", err);
+                  if (!reconnectTimer) {
+                    reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+                  }
+                });
+              }, 100);
+            } catch (e) {
+              console.error("Erreur lors de la reconnexion buffering:", e);
+              if (!reconnectTimer) {
+                reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+              }
+            }
+          }
+        }, BUFFERING_TIMEOUT);
+      }
+    });
+
+    // Démarrer la lecture dès que possible (même si pas complètement chargé)
+    player.addEventListener("canplay", () => {
+      if (!userPaused && player.paused && statusEl.textContent === "Buffering…") {
+        // Le flux a assez de données pour démarrer, essayer de jouer
+        player.play().catch(err => {
+          console.debug("Tentative de lecture automatique (canplay):", err);
+        });
+      }
+      
+      // Nettoyer le timer de buffering si le flux peut être lu
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
       }
     });
 
@@ -864,6 +1428,12 @@
       // Le flux peut être lu sans interruption
       if (statusEl.textContent === "Actualisation du flux…" || statusEl.textContent === "Buffering…") {
         statusEl.textContent = "";
+      }
+      
+      // Nettoyer le timer de buffering
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
       }
     });
     
@@ -880,15 +1450,56 @@
             // Ne pas reconnecter pour les interruptions manuelles
             break;
           case error.MEDIA_ERR_NETWORK:
-            errorMsg = "Erreur réseau - Reconnexion en cours…";
+            errorMsg = "Erreur réseau - Impossible de se connecter au flux audio";
             shouldReconnect = true;
+            console.error("Erreur réseau audio - Vérifiez que le flux est accessible à:", STREAM_URL);
+            // Si c'est un timeout réseau, attendre un peu plus avant de reconnecter
+            if (player.networkState === 3) { // NETWORK_NO_SOURCE
+              console.warn("Timeout réseau détecté - le serveur ne répond pas");
+              errorMsg = "Timeout - Le serveur ne répond pas. Vérifiez que Caddy et Icecast fonctionnent.";
+            }
             break;
           case error.MEDIA_ERR_DECODE:
             errorMsg = "Erreur de décodage - Nouvelle tentative…";
             shouldReconnect = true;
             break;
           case error.MEDIA_ERR_SRC_NOT_SUPPORTED:
-            errorMsg = "Format non supporté";
+            // Vérifier si c'est vraiment un problème de format ou un problème de connexion
+            if (player.networkState === 3) { // NETWORK_NO_SOURCE
+              // C'est probablement un timeout réseau, pas un problème de format
+              errorMsg = "Timeout - Le serveur ne répond pas. Vérifiez que Caddy et Icecast fonctionnent.";
+              shouldReconnect = true;
+              console.error("Timeout réseau détecté - le serveur ne répond pas à:", STREAM_URL);
+            } else {
+              errorMsg = "Format non supporté - Vérification du type MIME...";
+              shouldReconnect = true; // Essayer de reconnecter avec détection automatique
+              // Tester le Content-Type réel du flux
+              testStreamContentType().then(contentType => {
+                console.log("Content-Type détecté:", contentType);
+                if (contentType) {
+                  errorMsg = `Format détecté: ${contentType} - Reconnexion...`;
+                  statusEl.textContent = errorMsg;
+                  // Essayer de recharger avec le bon type
+                  setTimeout(() => {
+                    if (!userPaused && !reconnectTimer) {
+                      reconnectTimer = setTimeout(attemptReconnect, 500);
+                    }
+                  }, 1000);
+                } else {
+                  errorMsg = "Format non supporté - Vérifiez la configuration Icecast";
+                  statusEl.textContent = errorMsg;
+                }
+              }).catch(err => {
+                console.error("Erreur lors de la détection du Content-Type:", err);
+                // Si la détection échoue, c'est probablement un timeout réseau
+                if (err.message && err.message.includes("Timeout")) {
+                  errorMsg = "Timeout - Le serveur ne répond pas. Vérifiez que Caddy et Icecast fonctionnent.";
+                } else {
+                  errorMsg = "Format non supporté - Impossible de détecter le type";
+                }
+                statusEl.textContent = errorMsg;
+              });
+            }
             break;
           default:
             errorMsg = `Erreur (${error.code}) - Nouvelle tentative…`;
@@ -900,7 +1511,8 @@
           message: errorMsg,
           networkState: player.networkState,
           readyState: player.readyState,
-          src: player.src
+          src: player.src,
+          expectedSrc: STREAM_URL
         });
       } else {
         console.error("Erreur lecteur (sans détails):", e);
@@ -924,6 +1536,12 @@
       }
       
       statusEl.textContent = errorMsg;
+      
+      // Nettoyer le timer de buffering en cas d'erreur
+      if (bufferingTimer) {
+        clearTimeout(bufferingTimer);
+        bufferingTimer = null;
+      }
       
       // Tentative de reconnexion automatique pour les erreurs réseau
       if (shouldReconnect && !userPaused && !reconnectTimer) {
