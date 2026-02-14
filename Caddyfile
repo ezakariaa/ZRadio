@@ -12,8 +12,8 @@ z-radio.viewdns.net {
   route @status {
     reverse_proxy 127.0.0.1:8000 {
       transport http {
-        dial_timeout 2s
-        response_header_timeout 3s
+        dial_timeout 5s
+        response_header_timeout 10s
       }
     }
 
@@ -41,8 +41,8 @@ z-radio.viewdns.net {
   route @json {
     reverse_proxy 127.0.0.1:8000 {
       transport http {
-        dial_timeout 2s
-        response_header_timeout 3s
+        dial_timeout 5s
+        response_header_timeout 10s
       }
     }
     
@@ -62,20 +62,20 @@ z-radio.viewdns.net {
   respond @preflight_json 204
 
   # ---- Flux audio : configuration optimisée pour streaming
+  # Timeouts généreux pour éviter les coupures intermittentes
   @stream path /stream
   route @stream {
     reverse_proxy 127.0.0.1:8000 {
       # Pas de buffering pour les flux en temps réel
       flush_interval -1
       
-      # Configuration optimisée pour les flux audio
+      # Configuration très tolérante pour les flux audio (éviter timeout/buffering)
       transport http {
         versions 1.1
-        # Timeouts pour les streams longs
-        dial_timeout 3s
-        response_header_timeout 5s
-        read_timeout 2h
-        write_timeout 2h
+        dial_timeout 10s
+        response_header_timeout 30s
+        read_timeout 24h
+        write_timeout 24h
       }
       
       # Headers spécifiques pour le streaming
@@ -141,8 +141,8 @@ z-radio.viewdns.net {
     
     reverse_proxy 127.0.0.1:8000 {
       transport http {
-        dial_timeout 2s
-        response_header_timeout 3s
+        dial_timeout 5s
+        response_header_timeout 10s
       }
     }
   }

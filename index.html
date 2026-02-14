@@ -36,7 +36,8 @@
     a{ color:var(--accent); }
     .song-title{ font-weight:bold; font-size:1rem; }
     .artist-name{ margin-top:.2em; color:#aaa; font-size:1rem; }
-    #status{ margin-top:.6rem; font-size:.9rem; color:#ffd166; min-height:1.1em; }
+    #status{ margin-top:.6rem; font-size:.9rem; color:#ffd166; min-height:1.1em; cursor:pointer; text-decoration:underline; text-underline-offset:2px; }
+    #status:empty{ cursor:default; text-decoration:none; }
     
     /* Animation des barres audio */
     .audio-bars{
@@ -129,14 +130,18 @@
     const STATUS_FAIL_THRESHOLD = 3;
     let reconnectAttempts = 0;
     let reconnectTimer = null;
-    const MAX_RECONNECT_ATTEMPTS = 5;
+    const MAX_RECONNECT_ATTEMPTS = 10; // Augmenté pour plus de résilience
     const RECONNECT_DELAY = 2000; // 2 secondes (plus rapide)
     let lastKnownTitle = "";
     let lastKnownArtist = "";
-    const FETCH_TIMEOUT = 3000; // 3 secondes max (compromis vitesse/fiabilité)
+    const FETCH_TIMEOUT = 8000; // 8 secondes pour les réseaux lents (éviter timeout intermittent)
     let isInitialLoad = true;
     let bufferingTimer = null;
-    const BUFFERING_TIMEOUT = 4000; // 4 secondes max de buffering avant reconnexion
+    const BUFFERING_TIMEOUT = 8000; // 8 secondes avant reconnexion si buffering bloqué
+    let healthCheckTimer = null;
+    let lastPlayTime = 0;
+    const HEALTH_CHECK_INTERVAL = 15000; // Vérifier toutes les 15 secondes
+    const MAX_STALL_TIME = 20000; // Si pas de progression pendant 20 secondes, reconnecter
 
     function normalizeText(str) {
       if (!str) return "";
@@ -1006,9 +1011,58 @@
         setTimeout(loadMetadataAsync, 200);
       }
 
+      // Clic sur le message de statut = réessayer la connexion (en cas de timeout / erreur)
+      statusEl.addEventListener("click", () => {
+        const t = (statusEl.textContent || "").toLowerCase();
+        if (!t) return;
+        if (t.includes("timeout") || t.includes("buffering") || t.includes("erreur") || t.includes("reconnexion") || t.includes("impossible") || t.includes("serveur")) {
+          reconnectAttempts = 0;
+          if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+          statusEl.textContent = "Réessai…";
+          attemptReconnect(true);
+        }
+      });
+      statusEl.title = "Cliquez pour réessayer en cas d'erreur";
+
       // Intervalles pour les mises à jour périodiques
       setInterval(refreshSnip, 2000);
       setInterval(refreshPreviousTrack, 3000);
+      
+      // Gérer le rafraîchissement de la page - réinitialiser les compteurs
+      window.addEventListener("beforeunload", () => {
+        if (healthCheckTimer) {
+          clearInterval(healthCheckTimer);
+        }
+        if (bufferingTimer) {
+          clearTimeout(bufferingTimer);
+        }
+        if (reconnectTimer) {
+          clearTimeout(reconnectTimer);
+        }
+      });
+      
+      // Détecter si la page revient au premier plan (après un onglet inactif)
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && !userPaused && player.paused) {
+          // La page revient au premier plan et le player devrait jouer
+          console.log("Page revenue au premier plan, vérification du flux...");
+          setTimeout(() => {
+            if (!userPaused && player.paused && player.readyState >= 2) {
+              player.play().catch(err => {
+                console.warn("Erreur lors de la reprise après retour au premier plan:", err);
+                if (!reconnectTimer) {
+                  reconnectTimer = setTimeout(() => attemptReconnect(), 1000);
+                }
+              });
+            } else if (player.readyState < 2) {
+              // Le flux n'est pas prêt, reconnecter
+              if (!reconnectTimer) {
+                reconnectTimer = setTimeout(() => attemptReconnect(), 1000);
+              }
+            }
+          }, 500);
+        }
+      });
     }
 
     function pickSource(icestats) {
@@ -1217,17 +1271,32 @@
     // Mais on garde l'intervalle pour les mises à jour périodiques
     setInterval(refreshIcecast, 15000);
 
-    // Fonction de reconnexion automatique
-    function attemptReconnect() {
+    // Fonction de reconnexion automatique améliorée
+    function attemptReconnect(forceReset = false) {
       if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        statusEl.textContent = "Impossible de se reconnecter. Veuillez actualiser la page.";
-        return;
+        // Réinitialiser le compteur après un certain temps pour permettre de nouvelles tentatives
+        if (forceReset) {
+          reconnectAttempts = 0;
+          console.log("Réinitialisation du compteur de reconnexion");
+        } else {
+          statusEl.textContent = "Reconnexion dans 10 s… (ou cliquez sur Play)";
+          // Après 10 secondes, réinitialiser et réessayer (reconnexion persistante)
+          setTimeout(() => {
+            reconnectAttempts = 0;
+            attemptReconnect(true);
+          }, 10000);
+          return;
+        }
       }
 
-      // Nettoyer le timer de buffering
+      // Nettoyer tous les timers
       if (bufferingTimer) {
         clearTimeout(bufferingTimer);
         bufferingTimer = null;
+      }
+      if (healthCheckTimer) {
+        clearInterval(healthCheckTimer);
+        healthCheckTimer = null;
       }
 
       reconnectAttempts++;
@@ -1241,38 +1310,107 @@
         artistEl.textContent = lastKnownArtist;
       }
 
-      // Réinitialiser le lecteur et réessayer avec l'URL correcte
+      // Réinitialiser COMPLÈTEMENT le lecteur
       try {
-        // Utiliser l'URL du stream directement, pas player.src qui peut être corrompu
+        // Arrêter complètement le player
+        player.pause();
         player.src = "";
         player.load();
         
-        // Attendre un peu avant de réassigner la source
+        // Attendre un peu pour que le navigateur libère les ressources
         setTimeout(() => {
-          // Réassigner toutes les sources avec l'URL correcte
+          // Réassigner toutes les sources avec un cache-busting
+          const cacheBuster = "?t=" + Date.now() + "&r=" + Math.random();
           const sources = player.querySelectorAll("source");
           sources.forEach(source => {
-            source.src = STREAM_URL + (source.src.includes("?") ? "" : "?t=" + Date.now());
+            source.src = STREAM_URL + cacheBuster;
           });
           
           // Réassigner aussi player.src directement
-          player.src = STREAM_URL + "?t=" + Date.now();
+          player.src = STREAM_URL + cacheBuster;
           player.load();
           
-          // Essayer de jouer immédiatement
-          player.play().catch(err => {
-            console.warn("Tentative de reconnexion échouée:", err);
-            if (!reconnectTimer) {
-              reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+          // Attendre que le player soit prêt avant de jouer
+          const tryPlay = () => {
+            if (player.readyState >= 2) {
+              // Le flux est prêt, essayer de jouer
+              player.play().then(() => {
+                console.log("Reconnexion réussie !");
+                reconnectAttempts = 0; // Réinitialiser le compteur en cas de succès
+                lastPlayTime = Date.now();
+                startHealthCheck(); // Redémarrer le health check
+              }).catch(err => {
+                console.warn("Tentative de reconnexion échouée:", err);
+                if (!reconnectTimer) {
+                  reconnectTimer = setTimeout(() => attemptReconnect(), RECONNECT_DELAY);
+                }
+              });
+            } else {
+              // Attendre un peu plus
+              setTimeout(tryPlay, 100);
             }
-          });
-        }, 150);
+          };
+          
+          // Essayer de jouer après un court délai
+          setTimeout(tryPlay, 200);
+        }, 200);
       } catch (e) {
         console.error("Erreur lors de la reconnexion:", e);
         if (!reconnectTimer) {
-          reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
+          reconnectTimer = setTimeout(() => attemptReconnect(), RECONNECT_DELAY);
         }
       }
+    }
+
+    // Système de health check pour détecter les blocages
+    let lastHealthCheckTime = 0;
+    let lastHealthCheckCurrentTime = 0;
+    
+    function startHealthCheck() {
+      if (healthCheckTimer) {
+        clearInterval(healthCheckTimer);
+      }
+      
+      lastHealthCheckTime = Date.now();
+      lastHealthCheckCurrentTime = player.currentTime;
+      
+      healthCheckTimer = setInterval(() => {
+        if (userPaused) return; // Ne pas vérifier si l'utilisateur a mis en pause
+        
+        const now = Date.now();
+        const timeSinceLastPlay = now - lastPlayTime;
+        const timeSinceLastCheck = now - lastHealthCheckTime;
+        const currentTime = player.currentTime;
+        
+        // Vérifier si le player est bloqué
+        if (!player.paused) {
+          // Si le player est censé jouer mais est en "waiting" ou "stalled" depuis trop longtemps
+          if (player.readyState < 2 && timeSinceLastPlay > MAX_STALL_TIME) {
+            console.warn("Flux bloqué détecté (readyState < 2), reconnexion...");
+            if (!reconnectTimer) {
+              reconnectTimer = setTimeout(() => attemptReconnect(), 1000);
+            }
+            return;
+          }
+          
+          // Si le player n'a pas progressé depuis trop longtemps (timeout de progression)
+          if (timeSinceLastCheck > MAX_STALL_TIME) {
+            const timeProgressed = currentTime - lastHealthCheckCurrentTime;
+            // Si le temps n'a pas progressé (ou très peu) alors que le player devrait jouer
+            if (timeProgressed < 0.5 && timeSinceLastPlay > MAX_STALL_TIME) {
+              console.warn("Flux ne progresse pas (timeout de progression), reconnexion...");
+              if (!reconnectTimer) {
+                reconnectTimer = setTimeout(() => attemptReconnect(), 1000);
+              }
+              return;
+            }
+          }
+          
+          // Mettre à jour les valeurs pour le prochain check
+          lastHealthCheckTime = now;
+          lastHealthCheckCurrentTime = currentTime;
+        }
+      }, HEALTH_CHECK_INTERVAL);
     }
 
     // ---- Gestion du bouton Play/Pause avec reconnexion automatique
@@ -1282,6 +1420,10 @@
         clearTimeout(bufferingTimer);
         bufferingTimer = null;
       }
+      
+      // Démarrer le health check quand on joue
+      startHealthCheck();
+      lastPlayTime = Date.now();
       
       // Si l'utilisateur a mis en pause puis relance, actualiser le flux
       const shouldRefresh = wasPaused && userPaused;
@@ -1351,12 +1493,17 @@
         clearTimeout(bufferingTimer);
         bufferingTimer = null;
       }
+      if (healthCheckTimer) {
+        clearInterval(healthCheckTimer);
+        healthCheckTimer = null;
+      }
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.add("hidden");
     });
 
     player.addEventListener("playing", () => {
       reconnectAttempts = 0; // Réinitialiser le compteur quand la lecture reprend
+      lastPlayTime = Date.now(); // Mettre à jour le temps de dernière lecture
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -1368,6 +1515,7 @@
       statusEl.textContent = ""; // Effacer le message de reconnexion
       const audioBars = document.getElementById("audioBars");
       if (audioBars) audioBars.classList.remove("hidden");
+      startHealthCheck(); // Redémarrer le health check
     });
 
     // Détecter les interruptions de lecture
@@ -1378,9 +1526,12 @@
           clearTimeout(bufferingTimer);
           bufferingTimer = null;
         }
-        if (!reconnectTimer) {
-          reconnectTimer = setTimeout(attemptReconnect, RECONNECT_DELAY);
-        }
+        // Attendre un peu avant de reconnecter (peut être temporaire)
+        setTimeout(() => {
+          if (!userPaused && player.readyState < 2 && !reconnectTimer) {
+            reconnectTimer = setTimeout(() => attemptReconnect(), RECONNECT_DELAY);
+          }
+        }, 3000);
       }
     });
 
@@ -1434,7 +1585,10 @@
     player.addEventListener("canplay", () => {
       if (!userPaused && player.paused && statusEl.textContent === "Buffering…") {
         // Le flux a assez de données pour démarrer, essayer de jouer
-        player.play().catch(err => {
+        player.play().then(() => {
+          lastPlayTime = Date.now();
+          startHealthCheck();
+        }).catch(err => {
           console.debug("Tentative de lecture automatique (canplay):", err);
         });
       }
