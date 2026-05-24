@@ -1117,7 +1117,7 @@
           // Au chargement initial, forcer la mise à jour même si on a déjà un titre
           const isInitialLoadState = isInitialLoad || (!hasTitle && !hasArtist);
 
-          const iceTitle = src.title || src.server_name || "";
+          const iceTitle = src.title || src.metadata?.x_icy_title || src.server_name || "";
           if (iceTitle) {
             const [artistPart, ...titleParts] = iceTitle.split(" - ");
             const iceArtist = titleParts.length ? normalizeText(artistPart) : "";
