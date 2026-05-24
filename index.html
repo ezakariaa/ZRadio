@@ -1119,9 +1119,23 @@
 
           const iceTitle = src.title || src.metadata?.x_icy_title || src.server_name || "";
           if (iceTitle) {
-            const [titlePart, ...artistParts] = iceTitle.split(" - ");
-            const iceTrack = normalizeText(titlePart);
-            const iceArtist = artistParts.length ? normalizeText(artistParts.join(" - ")) : "";
+            let iceArtist = "", iceTrack = "";
+            if (iceTitle.includes(" - ")) {
+              const [a, ...t] = iceTitle.split(" - ");
+              iceArtist = normalizeText(a); iceTrack = normalizeText(t.join(" - "));
+            } else if (iceTitle.includes(" — ")) {
+              const [a, ...t] = iceTitle.split(" — ");
+              iceArtist = normalizeText(a); iceTrack = normalizeText(t.join(" — "));
+            } else {
+              const idx = iceTitle.indexOf("-");
+              const a = idx > 2 ? iceTitle.substring(0, idx) : "";
+              const t = idx > 2 ? iceTitle.substring(idx + 1) : "";
+              if (a.length > 2 && t.length > 2) {
+                iceArtist = normalizeText(a); iceTrack = normalizeText(t);
+              } else {
+                iceTrack = normalizeText(iceTitle);
+              }
+            }
             const iceKey = iceTrack + "|" + iceArtist;
 
             // Toujours mettre à jour si c'est le chargement initial ou si on n'a pas de métadonnées
