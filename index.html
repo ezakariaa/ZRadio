@@ -1119,9 +1119,10 @@
 
           const iceTitle = src.title || src.metadata?.x_icy_title || src.server_name || "";
           if (iceTitle) {
-            const [artistPart, ...titleParts] = iceTitle.split(" - ");
+            const sep = iceTitle.includes(" — ") ? " — " : " - ";
+            const [artistPart, ...titleParts] = iceTitle.split(sep);
             const iceArtist = titleParts.length ? normalizeText(artistPart) : "";
-            const iceTrack = titleParts.length ? normalizeText(titleParts.join(" - ")) : normalizeText(iceTitle);
+            const iceTrack = titleParts.length ? normalizeText(titleParts.join(sep)) : normalizeText(iceTitle);
             const iceKey = iceTrack + "|" + iceArtist;
 
             // Toujours mettre à jour si c'est le chargement initial ou si on n'a pas de métadonnées
