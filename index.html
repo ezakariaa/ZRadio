@@ -69,13 +69,13 @@
 
   <!-- Player principal -->
   <audio id="player" controls preload="metadata" crossorigin="anonymous">
-    <source id="src" src="https://z-radio.viewdns.net/stream" type="audio/mpeg">
-    <source id="src2" src="https://z-radio.viewdns.net/stream" type="audio/mp3">
-    <source id="src3" src="https://z-radio.viewdns.net/stream" type="audio/x-mpeg">
-    <source id="src4" src="https://z-radio.viewdns.net/stream" type="audio/mp4">
-    <source id="src5" src="https://z-radio.viewdns.net/stream" type="audio/aac">
-    <source id="src6" src="https://z-radio.viewdns.net/stream" type="audio/ogg">
-    <source id="src7" src="https://z-radio.viewdns.net/stream">
+    <source id="src" src="https://zradio.ddns.net/stream" type="audio/mpeg">
+    <source id="src2" src="https://zradio.ddns.net/stream" type="audio/mp3">
+    <source id="src3" src="https://zradio.ddns.net/stream" type="audio/x-mpeg">
+    <source id="src4" src="https://zradio.ddns.net/stream" type="audio/mp4">
+    <source id="src5" src="https://zradio.ddns.net/stream" type="audio/aac">
+    <source id="src6" src="https://zradio.ddns.net/stream" type="audio/ogg">
+    <source id="src7" src="https://zradio.ddns.net/stream">
     Votre navigateur ne supporte pas l'audio HTML5.
   </audio>
 
@@ -102,7 +102,7 @@
   </footer>
 
   <script>
-    const ICECAST_BASE = "https://z-radio.viewdns.net";
+    const ICECAST_BASE = "https://zradio.ddns.net";
     const STATUS_URLS  = [
       ICECAST_BASE + "/status-json.xsl?mount=/stream",
       ICECAST_BASE + "/status-json.xsl"
@@ -358,7 +358,7 @@
         const searchRes = await fetchWithTimeout(searchUrl, { 
           cache: "no-store",
           headers: {
-            'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
+            'User-Agent': 'ZRadio/1.0 (https://zradio.ddns.net)',
             'Accept': 'application/json'
           }
         }, 2000); // 2s max pour MusicBrainz
@@ -374,7 +374,7 @@
         const releaseRes = await fetchWithTimeout(releaseUrl, {
           cache: "no-store",
           headers: {
-            'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
+            'User-Agent': 'ZRadio/1.0 (https://zradio.ddns.net)',
             'Accept': 'application/json'
           }
         }, 2000);
@@ -481,7 +481,7 @@
         const r = await fetchWithTimeout(url, { 
           cache: "no-store",
           headers: {
-            'User-Agent': 'ZRadio/1.0 (https://z-radio.viewdns.net)',
+            'User-Agent': 'ZRadio/1.0 (https://zradio.ddns.net)',
             'Accept': 'application/json'
           }
         }, 2000);
@@ -1117,25 +1117,11 @@
           // Au chargement initial, forcer la mise à jour même si on a déjà un titre
           const isInitialLoadState = isInitialLoad || (!hasTitle && !hasArtist);
 
-          const iceTitle = src.title || src.metadata?.x_icy_title || src.server_name || "";
+          const iceTitle = src.title || src.server_name || "";
           if (iceTitle) {
-            let iceArtist = "", iceTrack = "";
-            if (iceTitle.includes(" - ")) {
-              const [a, ...t] = iceTitle.split(" - ");
-              iceArtist = normalizeText(a); iceTrack = normalizeText(t.join(" - "));
-            } else if (iceTitle.includes(" — ")) {
-              const [a, ...t] = iceTitle.split(" — ");
-              iceArtist = normalizeText(a); iceTrack = normalizeText(t.join(" — "));
-            } else {
-              const idx = iceTitle.indexOf("-");
-              const a = idx > 2 ? iceTitle.substring(0, idx) : "";
-              const t = idx > 2 ? iceTitle.substring(idx + 1) : "";
-              if (a.length > 2 && t.length > 2) {
-                iceArtist = normalizeText(a); iceTrack = normalizeText(t);
-              } else {
-                iceTrack = normalizeText(iceTitle);
-              }
-            }
+            const [artistPart, ...titleParts] = iceTitle.split(" - ");
+            const iceArtist = titleParts.length ? normalizeText(artistPart) : "";
+            const iceTrack = titleParts.length ? normalizeText(titleParts.join(" - ")) : normalizeText(iceTitle);
             const iceKey = iceTrack + "|" + iceArtist;
 
             // Toujours mettre à jour si c'est le chargement initial ou si on n'a pas de métadonnées
